@@ -7,6 +7,7 @@
 这是一个学习性质的 Agent 开发项目，目标是从零搭建一个桌面端代码助手，对标 Claude Code / TRAE Work 的编程核心功能。
 
 - **性质**：学习实战，非商业化产品
+- **协作方式**：个人独立开发，无多人协作场景
 - **技术栈**：TypeScript + Vite + Electron + React + Ant Design
 - **核心学习目标**：Agent 引擎（ReAct 循环）、工具系统、上下文管理
 
