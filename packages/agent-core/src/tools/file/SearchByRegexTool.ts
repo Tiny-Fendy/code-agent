@@ -1,0 +1,92 @@
+/**
+ * search_by_regex 工具 - 按正则表达式搜索文件内容
+ *
+ * 基于 ripgrep 实现。
+ */
+
+import { BaseTool } from '../base';
+import type { ToolResult, ToolContext } from '@code-agent/shared';
+import { PathGuard, PathGuardError } from './PathGuard';
+import { FsService, FILE_CONFIG } from './FsService';
+
+export class SearchByRegexTool extends BaseTool {
+  name = 'search_by_regex';
+  description = '在项目中搜索匹配正则表达式的内容。返回文件路径、行号和匹配行。';
+  parameters = {
+    type: 'object',
+    properties: {
+      pattern: {
+        type: 'string',
+        description: '正则表达式模式',
+      },
+      search_path: {
+        type: 'string',
+        description: '搜索的子目录（相对项目根目录），默认搜索整个项目',
+      },
+      max_results: {
+        type: 'number',
+        description: `最大返回结果数，默认 ${FILE_CONFIG.MAX_SEARCH_RESULTS}`,
+      },
+    },
+    required: ['pattern'],
+  };
+  requiresConfirmation = false;
+
+  private pathGuard: PathGuard;
+  private fsService: FsService;
+
+  constructor(projectPath: string) {
+    super();
+    this.pathGuard = new PathGuard(projectPath);
+    this.fsService = new FsService(projectPath);
+  }
+
+  async execute(params: Record<string, any>, _context: ToolContext): Promise<ToolResult> {
+    const pattern = params.pattern as string;
+    const searchPath = (params.search_path as string) || '.';
+    const maxResults = (params.max_results as number) ?? FILE_CONFIG.MAX_SEARCH_RESULTS;
+
+    if (!pattern) {
+      return this.error('pattern 参数不能为空');
+    }
+
+    // 编译正则
+    let regex: RegExp;
+    try {
+      regex = new RegExp(pattern);
+    } catch (err) {
+      return this.error(`无效的正则表达式: ${(err as Error).message}`);
+    }
+
+    // 校验搜索路径
+    let absPath: string;
+    try {
+      absPath = await this.pathGuard.resolveAndValidate(searchPath);
+    } catch (err) {
+      return this.error((err as PathGuardError).message);
+    }
+
+    // 执行搜索
+    let results;
+    try {
+      results = await this.fsService.searchByRegex(absPath, regex, maxResults);
+    } catch (err) {
+      return this.error(`搜索失败: ${(err as Error).message}`);
+    }
+
+    if (results.length === 0) {
+      return this.success('没有找到匹配的内容');
+    }
+
+    // 格式化输出
+    const output = results
+      .map(r => `${r.filePath}:${r.line}: ${r.content}`)
+      .join('\n');
+
+    const truncated = results.length >= maxResults
+      ? `\n\n... (结果已截断，最多显示 ${maxResults} 条，请缩小搜索范围)`
+      : '';
+
+    return this.success(output + truncated);
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "code-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI code agent desktop app (learning project)",
+  "scripts": {
+    "dev": "pnpm run build:packages && pnpm --filter @code-agent/electron-main run dev",
+    "build": "pnpm run build:packages && pnpm run build:electron",
+    "build:packages": "pnpm run build:shared && pnpm run build:agent",
+    "build:shared": "pnpm --filter @code-agent/shared run build",
+    "build:agent": "pnpm --filter @code-agent/agent-core run build",
+    "build:electron": "pnpm --filter @code-agent/electron-main run build",
+    "typecheck": "pnpm -r run typecheck"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@types/node": "^20.11.0",
+    "electron": "44.0.0-beta.6"
+  }
+}
