@@ -43,6 +43,7 @@ window.transport = {
 1. **最小暴露原则**：只暴露 `invoke` / `onStream` 两个原子函数，不出现任何业务方法名
 2. **不暴露原始 IPC**：渲染进程拿不到 `ipcRenderer`，只能走信封协议
 3. **清理函数**：`onStream` 返回退订函数，方便组件卸载时解绑
+4. **文档分层**：`openspec/changes/` 放单次需求文档；`openspec/systems/` 放核心子系统的方案设计文档（面向特性设计，非代码细节）：安全桥接层——长期维护、随设计演进持续更新（规范见根 Agent.md）
 
 ## 构建
 

@@ -28,7 +28,7 @@ src/
 
 ## RPC 通信
 
-渲染层 ↔ 主进程走**单通道 dispatch + 信封协议**（设计文档：`openspec/rpc-communication/`）：
+渲染层 ↔ 主进程走**单通道 dispatch + 信封协议**（设计文档：`openspec/changes/rpc-communication/`）：
 
 - `rpc:invoke`：渲染层 → 主进程，载荷 `{ service, method, args }`，返回 `{ ok, data | error }` 信封
 - `rpc:stream`：主进程 → 渲染层，流式方法按 `streamId` 推送 `next` / `return` / `throw` 帧
@@ -61,6 +61,7 @@ src/
 2. **Router 不依赖 Electron**：纯逻辑 + 注入 StreamEmitter，保证可单测
 3. **错误走信封**：handler 异常包装成 `{ ok: false }` 返回，不向 IPC 层抛异常
 4. **主进程不阻塞**：耗时操作放子进程或异步执行，避免阻塞事件循环
+5. **文档分层**：`openspec/changes/` 放单次需求文档；`openspec/systems/` 放核心子系统的方案设计文档（面向特性设计，非代码细节）：RPC 服务端、窗口与生命周期管理——长期维护、随设计演进持续更新（规范见根 Agent.md）
 
 ## 构建
 
