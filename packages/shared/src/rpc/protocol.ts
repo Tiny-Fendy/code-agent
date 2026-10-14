@@ -1,7 +1,7 @@
 /**
  * RPC 通信协议
  *
- * 核心决策（见 openspec/rpc-communication/design.md）：
+ * 核心决策（见 electron-main/openspec/changes/rpc-communication/design.md）：
  * - D2 单通道 dispatch + 信封：invoke 通道只有一个，方法定位靠载荷里的 service + method，
  *   新增服务方法不需要新通道
  * - D4 错误走信封（数据），不走 IPC reject：invoke 跨进程后 Error 会丢字段
