@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { RunCommandTool } from '../../../src/tools/shell/RunCommandTool';
+import { RunCommandTool } from '@/tools/shell/RunCommandTool';
 
 describe('RunCommandTool', () => {
   const sandbox = mkdtempSync(join(tmpdir(), 'runcommand-test-'));

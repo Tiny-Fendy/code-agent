@@ -2,8 +2,8 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ToolManager } from '../../src/tools/ToolManager';
-import { BaseTool } from '../../src/tools/base';
+import { ToolManager } from '@/tools/ToolManager';
+import { BaseTool } from '@/tools/base';
 
 class BombTool extends BaseTool {
   name = 'bomb';
@@ -24,12 +24,12 @@ describe('ToolManager', () => {
     rmSync(sandbox, { recursive: true, force: true });
   });
 
-  it('构造时自动注册 6 个内置工具', () => {
+  it('构造时自动注册 7 个内置工具', () => {
     const defs = tm.getDefinitions();
-    expect(defs).toHaveLength(6);
+    expect(defs).toHaveLength(7);
     const names = defs.map((d) => d.name);
     expect(names).toEqual(
-      expect.arrayContaining(['list_dir', 'read_file', 'search_by_regex', 'write_file', 'edit_file', 'run_command']),
+      expect.arrayContaining(['list_dir', 'read_file', 'search_by_regex', 'write_file', 'edit_file', 'run_command', 'finish']),
     );
   });
 
@@ -65,6 +65,6 @@ describe('ToolManager', () => {
     const bombResult = await tm.execute('bomb', {}, ctx);
     expect(bombResult.success).toBe(false);
     expect(bombResult.error).toContain('boom');
-    expect(tm.getDefinitions()).toHaveLength(7);
+    expect(tm.getDefinitions()).toHaveLength(8);
   });
 });

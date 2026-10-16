@@ -15,7 +15,8 @@
  * - LLM 继续思考，直到给出最终答案
  */
 
-import { Agent } from '../../src/index';
+import { Agent } from '@/index';
+import type { SendResult } from '@code-agent/shared';
 
 async function main() {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -47,11 +48,15 @@ async function main() {
     process.cwd(),
   );
 
-  // 3. 运行 Agent，处理流式事件
+  // 3. 运行 Agent，处理流式事件（for-await 拿不到返回值，手动迭代收集终局结果）
   let currentAssistantContent = '';
+  let finalResult: SendResult | undefined;
 
   try {
-    for await (const event of agent.run(userMessage)) {
+    const gen = agent.run(userMessage);
+    let r = await gen.next();
+    while (!r.done) {
+      const event = r.value;
       switch (event.type) {
         case 'text_delta':
           // 流式文本增量
@@ -73,11 +78,11 @@ async function main() {
           break;
 
         case 'tool_call_result':
-          const result = event.data.result;
-          if (result.success) {
-            console.log(`   ✅ 结果: ${result.content}`);
+          const toolResult = event.data.result;
+          if (toolResult.success) {
+            console.log(`   ✅ 结果: ${toolResult.content}`);
           } else {
-            console.log(`   ❌ 错误: ${result.error}`);
+            console.log(`   ❌ 错误: ${toolResult.error}`);
           }
           console.log();
           break;
@@ -86,22 +91,33 @@ async function main() {
           console.log();
           console.log(`\n--- 第 ${event.data.step} 轮思考完成 ---`);
           break;
-
-        case 'done':
-          console.log();
-          console.log('='.repeat(60));
-          console.log(`任务完成！共 ${event.data.steps ?? '?'} 步`);
-          console.log('='.repeat(60));
-          break;
-
-        case 'error':
-          console.error(`\n❌ 错误: ${event.data.message}`);
-          break;
       }
+      r = await gen.next();
     }
+    finalResult = r.value;
   } catch (err) {
     console.error('运行失败:', err);
+    process.exit(1);
   }
+
+  // 4. 终局收口（生成器返回值，穷尽四个退出点）
+  console.log();
+  console.log('='.repeat(60));
+  switch (finalResult.status) {
+    case 'completed':
+      console.log(`任务完成！共 ${finalResult.steps} 步`);
+      break;
+    case 'llmFailed':
+      console.error(`❌ LLM 调用失败: ${finalResult.message}`);
+      break;
+    case 'maxSteps':
+      console.log(`已达最大思考步数 (${finalResult.steps})，任务未完成`);
+      break;
+    case 'aborted':
+      console.log('任务被中断');
+      break;
+  }
+  console.log('='.repeat(60));
 }
 
 main();

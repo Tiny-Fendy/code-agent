@@ -9,7 +9,7 @@
  *   3. 观察(Observe)：把工具执行结果回灌给 LLM
  *   4. 循环：LLM 基于新信息继续思考，直到给出最终答案
  *
- * 事件流（通过 AsyncGenerator 推送）：
+ * 事件流（通过 AsyncGenerator 推送，只含过程数据）：
  *   text_delta       → 流式文本增量
  *   tool_call_delta  → 工具调用增量
  *   tool_call_confirm → 高危工具执行前请求用户确认（注入了确认回调时）
@@ -17,14 +17,19 @@
  *   tool_call_result → 工具执行完成，返回结果
  *   message_complete → 一轮 LLM 响应完成
  *   context_compact  → 上下文压缩完成（历史摘要替换）
- *   done             → 整个 Agent 任务完成
- *   error            → 出错
+ *
+ * 终局结果（生成器返回值 SendResult，穷尽四个退出点）：
+ *   completed  → LLM 给出最终答案
+ *   llmFailed  → LLM 调用失败（错误原因随结果带出，不走事件）
+ *   maxSteps   → 达到最大思考步数
+ *   aborted    → 被 abort() 中断
  */
 
 import type {
   AgentConfig,
   AgentEvent,
   ChatMessage,
+  SendResult,
   ToolCall,
   ToolConfirmCallback,
   ToolContext,
@@ -52,6 +57,12 @@ const DEFAULT_SYSTEM_PROMPT = `你是一个专业的代码开发助手，可以�
 2. 每次调用工具后，根据结果决定下一步
 3. 如果工具执行失败，分析原因并尝试修正
 4. 当你有足够信息回答用户问题时，直接给出最终答案
+5. 当任务全部完成时，调用 finish 工具输出总结并结束循环
+
+finish 工具的使用：
+- 仅在确认所有子任务已完成、无遗留问题时调用 finish
+- finish 的 summary 应包含：完成了什么、关键变更、遗留问题（如有）
+- 不要只回复文字作为结束，必须显式调用 finish 工具
 
 回答要求：
 - 代码要清晰、有注释
@@ -88,7 +99,7 @@ export class Agent {
   private maxSteps: number;
   private aborted = false;
   /** 高危工具确认回调；未注入时自动放行（无 UI 场景） */
-  private onConfirm?: ToolConfirmCallback;
+  private readonly onConfirm?: ToolConfirmCallback;
 
   constructor(config: AgentConfig, projectPath: string, onConfirm?: ToolConfirmCallback) {
     this.config = config;
@@ -111,10 +122,10 @@ export class Agent {
   /**
    * 发送用户消息，启动 Agent 思考循环
    *
-   * 返回 AsyncGenerator，逐步推送 Agent 事件。
+   * 返回 AsyncGenerator：yield 过程事件，return 终局结果 SendResult。
    * 这是 ReAct 模式的核心入口。
    */
-  async *run(userMessage: string): AsyncGenerator<AgentEvent> {
+  async *run(userMessage: string): AsyncGenerator<AgentEvent, SendResult> {
     this.aborted = false;
 
     // 1. 添加用户消息到上下文
@@ -126,23 +137,27 @@ export class Agent {
     // 2. ReAct 循环
     for (let step = 0; step < this.maxSteps; step++) {
       if (this.aborted) {
-        yield { type: 'done', data: { reason: 'aborted' } };
-        return;
+        return { status: 'aborted' };
       }
 
       // ---- 上下文压缩检查：逼近窗口上限时先压缩再思考 ----
       yield* this.maybeCompactContext();
       if (this.aborted) {
-        yield { type: 'done', data: { reason: 'aborted' } };
-        return;
+        return { status: 'aborted' };
       }
 
       // ---- 思考阶段：调用 LLM ----
-      const assistantMessage = yield* this.callLLM();
+      const { message: assistantMessage, error } = yield* this.callLLM();
 
+      if (this.aborted) {
+        return { status: 'aborted' };
+      }
+      if (error !== undefined) {
+        return { status: 'llmFailed', message: error };
+      }
       if (!assistantMessage) {
-        // callLLM 内部已经 yield 了 error 事件
-        return;
+        // LLM 流既未给出完整消息也未报错（异常的上游行为）
+        return { status: 'llmFailed', message: 'LLM 响应异常结束（无完整消息）' };
       }
 
       // 把 assistant 消息加入上下文
@@ -157,8 +172,7 @@ export class Agent {
       const toolCalls = assistantMessage.toolCalls;
       if (!toolCalls || toolCalls.length === 0) {
         // 没有工具调用 = LLM 给出了最终答案，循环结束
-        yield { type: 'done', data: { steps: step + 1 } };
-        return;
+        return { status: 'completed', steps: step + 1 };
       }
 
       // ---- 行动阶段：执行工具 ----
@@ -233,27 +247,32 @@ export class Agent {
           toolCallId: toolCall.id,
           name: toolCall.name,
         });
+
+        // ---- finish 检测：LLM 主动结束任务，不再进入下一轮 ----
+        if (toolCall.name === 'finish' && result.success) {
+          return { status: 'finished', steps: step + 1, summary: result.content };
+        }
       }
 
       // 继续下一轮思考（循环回到 LLM 调用）
     }
 
     // 超出最大步数
-    yield {
-      type: 'error',
-      data: { message: `已达到最大思考步数 (${this.maxSteps})，任务未完成` },
-    };
-    yield { type: 'done', data: { reason: 'max_steps', steps: this.maxSteps } };
+    return { status: 'maxSteps', steps: this.maxSteps };
   }
 
   /**
    * 调用 LLM，处理流式响应
    *
-   * - 转发 text_delta 事件给上层
-   * - 累积完整消息后返回
-   * - 出错时 yield error 事件并返回 null
+   * - 转发 text_delta / tool_call_delta 事件给上层
+   * - 返回 { message } 累积的完整消息；LLM 失败时返回 { error }（原因不走事件）
+   * - 被 abort 打断时 message 为 null，由 run 统一判 aborted
    */
-  private async *callLLM(): AsyncGenerator<AgentEvent, ChatMessage | null, unknown> {
+  private async *callLLM(): AsyncGenerator<
+    AgentEvent,
+    { message: ChatMessage | null; error?: string },
+    unknown
+  > {
     const messages = this.contextManager.getMessages();
     const tools = this.toolManager.getDefinitions();
 
@@ -285,12 +304,12 @@ export class Agent {
           break;
 
         case 'error':
-          yield { type: 'error', data: event.data };
-          return null;
+          // LLM 失败不向外 yield 事件，原因随返回值带出
+          return { message: null, error: event.data.message as string };
       }
     }
 
-    return completeMessage;
+    return { message: completeMessage };
   }
 
   /**

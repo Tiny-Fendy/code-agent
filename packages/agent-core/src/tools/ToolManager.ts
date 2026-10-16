@@ -17,6 +17,7 @@ import {
   EditFileTool,
 } from './file';
 import { RunCommandTool } from './shell';
+import { FinishTool } from './finish';
 
 export class ToolManager {
   private tools = new Map<string, Tool>();
@@ -34,6 +35,7 @@ export class ToolManager {
       new WriteFileTool(projectPath),
       new EditFileTool(projectPath),
       new RunCommandTool(projectPath),
+      new FinishTool(),
     ];
   }
 

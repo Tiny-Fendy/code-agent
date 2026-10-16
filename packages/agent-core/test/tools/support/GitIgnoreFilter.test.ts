@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { GitIgnoreFilter } from '../../../src/tools/support/GitIgnoreFilter';
+import { GitIgnoreFilter } from '@/tools/support/GitIgnoreFilter';
 
 describe('GitIgnoreFilter', () => {
   const sandbox = mkdtempSync(join(tmpdir(), 'gitignore-test-'));

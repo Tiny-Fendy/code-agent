@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ReadFileTool } from '../../../src/tools/file/ReadFileTool';
+import { ReadFileTool } from '@/tools/file/ReadFileTool';
 
 describe('ReadFileTool', () => {
   const sandbox = mkdtempSync(join(tmpdir(), 'readfile-test-'));

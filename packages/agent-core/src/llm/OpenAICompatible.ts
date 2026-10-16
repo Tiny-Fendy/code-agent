@@ -1,12 +1,21 @@
 /**
  * OpenAI 兼容接口的 LLM Provider
  *
+ * 适用面：OpenAI 官方 API、Azure OpenAI、DeepSeek、Moonshot，
+ * 以及 vLLM / Ollama 等本地推理服务——只要遵循 /chat/completions 流式协议即可复用。
+ *
+ * 核心职责：
+ * 1. 组装请求体（messages / tools / temperature 等）
+ * 2. 解析 SSE 流式响应，把协议层 OpenAIStreamChunk 翻译为 LLM 层 LLMEvent
+ * 3. 累积拼接工具调用的增量 arguments（逐段到达的 JSON 字符串），
+ *    流结束时统一 JSON.parse 为完整参数对象
+ *
  * 核心学习点：
  * 1. SSE（Server-Sent Events）流式响应解析
  * 2. 工具调用的增量 JSON 拼接（arguments 是逐段来的）
  * 3. AsyncGenerator 模式下的流式事件推送
  *
- * OpenAI 兼容接口的流式响应格式（SSE）：
+ * 流式响应格式（SSE）：
  *   data: {"id":"...","choices":[{"index":0,"delta":{"content":"你"},"finish_reason":null}]}
  *   data: {"id":"...","choices":[{"index":0,"delta":{"content":"好"},"finish_reason":null}]}
  *   ...
@@ -20,27 +29,21 @@
 
 import { LLMProvider, type ChatCompletionParams, type LLMEvent } from './LLMProvider';
 import type { ChatMessage, ToolCall } from '@code-agent/shared';
+import type { OpenAIStreamChunk } from './openai-types';
 
-/** SSE 解析后的单条数据 */
-interface SSEChunk {
-  id?: string;
-  choices: Array<{
-    index: number;
-    delta: {
-      role?: string;
-      content?: string | null;
-      tool_calls?: Array<{
-        index: number;
-        id?: string;
-        type?: string;
-        function?: {
-          name?: string;
-          arguments?: string;
-        };
-      }>;
-    };
-    finish_reason: string | null;
-  }>;
+/**
+ * 累积中的工具调用（实现层内部状态）
+ *
+ * 与协议层 OpenAIStreamToolCall 的区别：
+ * - OpenAIStreamToolCall 描述单块增量（字段都可能是片段）
+ * - AccumulatedToolCall 是按 index 累积后的中间结果：id/name 通常已就位，
+ *   arguments 仍是未完成的 JSON 字符串，需流结束后统一 JSON.parse
+ */
+interface AccumulatedToolCall {
+  id: string;
+  name: string;
+  /** 累积拼接中的 JSON 字符串（可能不完整） */
+  arguments: string;
 }
 
 export class OpenAICompatibleProvider extends LLMProvider {
@@ -116,11 +119,7 @@ export class OpenAICompatibleProvider extends LLMProvider {
 
     // 用于累积完整消息
     let fullContent = '';
-    const toolCalls: Array<{
-      id: string;
-      name: string;
-      arguments: string; // 累积的 JSON 字符串，最后再 parse
-    }> = [];
+    const toolCalls: AccumulatedToolCall[] = [];
 
     try {
       while (true) {
@@ -151,7 +150,7 @@ export class OpenAICompatibleProvider extends LLMProvider {
               return;
             }
 
-            let chunk: SSEChunk;
+            let chunk: OpenAIStreamChunk;
             try {
               chunk = JSON.parse(dataStr);
             } catch {
@@ -229,7 +228,7 @@ export class OpenAICompatibleProvider extends LLMProvider {
   /** 从累积的数据构建完整的 ChatMessage */
   private buildCompleteMessage(
     content: string,
-    toolCallsRaw: Array<{ id: string; name: string; arguments: string }>,
+    toolCallsRaw: AccumulatedToolCall[],
   ): ChatMessage {
     const msg: ChatMessage = {
       role: 'assistant',
@@ -261,8 +260,8 @@ export class OpenAICompatibleProvider extends LLMProvider {
 
   /** 构建部分工具调用（用于实时展示，arguments 可能不完整） */
   private buildPartialToolCalls(
-    toolCallsRaw: Array<{ id: string; name: string; arguments: string }>,
-  ): Array<{ id: string; name: string; arguments: string }> {
+    toolCallsRaw: AccumulatedToolCall[],
+  ): AccumulatedToolCall[] {
     return toolCallsRaw.map(tc => ({
       id: tc.id,
       name: tc.name,

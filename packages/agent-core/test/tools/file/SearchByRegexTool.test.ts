@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SearchByRegexTool } from '../../../src/tools/file/SearchByRegexTool';
+import { SearchByRegexTool } from '@/tools/file/SearchByRegexTool';
 
 describe('SearchByRegexTool', () => {
   const sandbox = mkdtempSync(join(tmpdir(), 'search-test-'));

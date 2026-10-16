@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { EditFileTool } from '../../../src/tools/file/EditFileTool';
+import { EditFileTool } from '@/tools/file/EditFileTool';
 
 describe('EditFileTool', () => {
   const sandbox = mkdtempSync(join(tmpdir(), 'editfile-test-'));

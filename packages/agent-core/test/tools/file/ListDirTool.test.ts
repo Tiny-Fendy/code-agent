@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ListDirTool } from '../../../src/tools/file/ListDirTool';
+import { ListDirTool } from '@/tools/file/ListDirTool';
 
 describe('ListDirTool', () => {
   const sandbox = mkdtempSync(join(tmpdir(), 'listdir-test-'));

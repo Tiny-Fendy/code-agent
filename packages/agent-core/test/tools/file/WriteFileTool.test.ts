@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { WriteFileTool } from '../../../src/tools/file/WriteFileTool';
+import { WriteFileTool } from '@/tools/file/WriteFileTool';
 
 describe('WriteFileTool', () => {
   const sandbox = mkdtempSync(join(tmpdir(), 'writefile-test-'));

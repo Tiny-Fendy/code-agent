@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FsService } from '../../../src/tools/support/FsService';
+import { FsService } from '@/tools/support/FsService';
 
 describe('FsService', () => {
   const sandbox = mkdtempSync(join(tmpdir(), 'fsservice-test-'));

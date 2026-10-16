@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ContextManager } from '../../src/context/ContextManager';
+import { ContextManager } from '@/context/ContextManager';
 import type { ChatMessage } from '@code-agent/shared';
 
 function countOf(messages: ChatMessage[]): number {
