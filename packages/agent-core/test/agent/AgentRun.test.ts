@@ -68,6 +68,62 @@ describe('Agent.run 终局结果', () => {
     expect(events.map((e) => e.type)).toEqual(['text_delta', 'message_complete']);
   });
 
+  it('finish 工具调用：return finished，携带 summary', async () => {
+    const { events, result } = await collect(
+      createAgent(async function* () {
+        yield {
+          type: 'message_complete',
+          data: {
+            message: {
+              role: 'assistant',
+              content: '',
+              toolCalls: [{ id: 'tc-finish', name: 'finish', arguments: { summary: '任务完成，共修改 3 个文件' } }],
+            },
+          },
+        };
+      }).run('hi'),
+    );
+
+    expect(result).toEqual({
+      status: 'finished',
+      steps: 1,
+      summary: '任务完成，共修改 3 个文件',
+    });
+    // finish 工具正常执行，有 tool_call_start 和 tool_call_result
+    expect(events.map((e) => e.type)).toEqual(['message_complete', 'tool_call_start', 'tool_call_result']);
+  });
+
+  it('finish 空 summary：返回 error，Agent 继续循环', async () => {
+    let callCount = 0;
+    const { events, result } = await collect(
+      createAgent(async function* () {
+        callCount++;
+        if (callCount === 1) {
+          // 第一轮：finish 空 summary
+          yield {
+            type: 'message_complete',
+            data: {
+              message: {
+                role: 'assistant',
+                content: '',
+                toolCalls: [{ id: 'tc-finish', name: 'finish', arguments: { summary: '' } }],
+              },
+            },
+          };
+        } else {
+          // 第二轮：正常完成
+          yield { type: 'message_complete', data: { message: textMessage('完成') } };
+        }
+      }).run('hi'),
+    );
+
+    expect(result).toEqual({ status: 'completed', steps: 2 });
+    // 第一轮 finish 返回 error，第二轮正常结束
+    const toolResults = events.filter((e) => e.type === 'tool_call_result');
+    expect(toolResults).toHaveLength(1);
+    expect(toolResults[0].data.result.success).toBe(false);
+  });
+
   it('LLM 失败：return llmFailed，不外发 error 事件', async () => {
     const { events, result } = await collect(
       createAgent(async function* () {

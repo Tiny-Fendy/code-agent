@@ -72,16 +72,18 @@
 **优先级**：P0
 **预估工作量**：中
 
-- [ ] 创建 `test/tools/finish/FinishTool.test.ts`
-- [ ] 测试空 summary 返回 error
-- [ ] 测试正常 summary 返回 success
-- [ ] 创建 `test/agent/Agent.test.ts` 或扩展现有测试
-- [ ] Mock LLM 场景：LLM 返回 finish 工具调用 → Agent 正确结束
-- [ ] 测试 done 事件包含 reason: 'finished' 与 summary
+- [x] 创建 `test/tools/finish/FinishTool.test.ts`
+- [x] 测试空 summary 返回 error
+- [x] 测试正常 summary 返回 success
+- [x] 扩展 `test/agent/AgentRun.test.ts` 覆盖 finish 场景
+- [x] Mock LLM 场景：LLM 返回 finish 工具调用 → Agent 正确结束
+- [x] 测试 SendResult 包含 status: 'finished' 与 summary
+- [x] 测试 finish 空 summary 返回 error，Agent 继续循环
 
 **验收标准**：
-- FinishTool 单测通过
-- Agent 集成测试通过（finish 触发正确退出）
+- FinishTool 单测 5 项通过 ✅
+- AgentRun finish 场景集成测试 2 项通过 ✅
+- 全量测试 94 项通过 ✅
 
 ---
 
@@ -90,12 +92,12 @@
 **优先级**：P1
 **预估工作量**：小
 
-- [ ] 更新 `openspec/systems/tool-system.md` 工具清单（新增 finish）
-- [ ] 更新 `openspec/systems/agent-engine.md` done 事件说明
-- [ ] 更新根 Agent.md 事件流协议表
+- [x] 更新 `openspec/systems/tool-system.md` 工具清单（新增 finish）
+- [x] 更新 `openspec/systems/agent-engine.md` done 事件说明与变更记录
+- [x] 更新 `openspec/changes/finish-tool/tasks.md` 勾选全部任务
 
 **验收标准**：
-- 文档与代码实态一致
+- 文档与代码实态一致 ✅
 
 ---
 

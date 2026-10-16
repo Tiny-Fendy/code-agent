@@ -27,10 +27,11 @@ Agent 是整个引擎的编排中枢，实现 ReAct（Reasoning + Acting）循�
 
 ```
 中断检查 → 上下文压缩检查 → 思考（调 LLM，流式转发）
-  → 无工具调用：最终答案，done
+  → 无工具调用：最终答案，done(completed)
   → 有工具调用：逐个执行（确认 → 开始 → 执行 → 结果 → 观察回灌）
-  → 回到循环顶部
-步数耗尽：error + done(max_steps)
+    → 检测到 finish 工具：done(finished, summary)
+    → 其他工具：回到循环顶部
+步数耗尽：done(max_steps)
 ```
 
 ### 3.2 事件流契约
@@ -43,7 +44,7 @@ Agent 是整个引擎的编排中枢，实现 ReAct（Reasoning + Acting）循�
 | message_complete | 一轮 LLM 响应完成（含 step 序号） |
 | context_compact | 上下文压缩应用成功（before/after token） |
 | error | 出错（LLM 失败、步数耗尽等） |
-| done | 任务结束（reason: 正常 / aborted / max_steps） |
+| done | 任务结束（reason: completed / finished / aborted / max_steps；finished 时携带 summary） |
 
 ### 3.3 中断机制
 
@@ -69,6 +70,7 @@ Agent 是整个引擎的编排中枢，实现 ReAct（Reasoning + Acting）循�
 | 拒绝/失败均回灌 tool 消息 | 保证消息对完整性，OpenAI 兼容协议强制要求 |
 | 压缩失败静默跳过 | 压缩是优化手段而非任务本身，失败不应中断用户任务 |
 | 中断用标志位而非异常 | AsyncGenerator 中断需在多个 await 点检查，标志位语义清晰、易审计 |
+| finish 是标准工具而非硬编码特殊逻辑 | LLM 只能通过工具调用来表达意图；工具机制天然支持 schema 校验、错误回灌、结果回传 |
 
 ## 5. 参数默认值
 
@@ -91,3 +93,4 @@ Agent 是整个引擎的编排中枢，实现 ReAct（Reasoning + Acting）循�
 | 日期 | 变更 |
 |------|------|
 | 2026-10-14 | 初版补录：ReAct 循环、事件流契约、中断机制、工具确认流、压缩编排（均已落地实现） |
+| 2026-10-16 | finish 工具接入：循环内检测 finish 调用后 return { status: 'finished', summary } 退出；系统提示词追加 finish 使用引导 |

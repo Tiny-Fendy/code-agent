@@ -54,6 +54,7 @@ Agent：把 ToolResult 以 role='tool' 消息回灌上下文
 | write_file | 写文件（覆盖） | 否 |
 | edit_file | 精确替换编辑 | 否 |
 | run_command | Shell 命令执行 | **是** |
+| finish | 任务完成时显式结束循环 | 否 |
 
 ## 6. 关键设计决策
 
@@ -79,3 +80,4 @@ Agent：把 ToolResult 以 role='tool' 消息回灌上下文
 |------|------|------------|
 | 2026-10-14 | 初版补录：接入标准、组装与调度流程、6 个内置工具、关键设计决策（均已落地） | `openspec/file-tools/`、本会话 shell 工具与组装点重构 |
 | 2026-10-14 | PathGuard 修复：项目根在构造时归一化（realpathSync），修复符号链接形式的根路径（如 macOS /var/folders）下全部合法访问被误判为"符号链接指向项目外"的问题；新增工具层单测 `test/tools.test.ts`（29 项） | — |
+| 2026-10-16 | finish 工具落地：第 7 个内置工具，LLM 显式调用结束任务循环；`@/` 别名配置统一测试导入路径 | `changes/finish-tool/` |
