@@ -7,7 +7,3 @@ export { ReadFileTool } from './ReadFileTool';
 export { SearchByRegexTool } from './SearchByRegexTool';
 export { WriteFileTool } from './WriteFileTool';
 export { EditFileTool } from './EditFileTool';
-
-export { PathGuard } from './PathGuard';
-export { FsService, FILE_CONFIG } from './FsService';
-export { GitIgnoreFilter } from './gitignore';

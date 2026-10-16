@@ -15,7 +15,7 @@
  * - LLM 继续思考，直到给出最终答案
  */
 
-import { Agent } from '../src/index';
+import { Agent } from '../../src/index';
 
 async function main() {
   const apiKey = process.env.OPENAI_API_KEY;

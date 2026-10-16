@@ -1,11 +1,16 @@
 /**
  * read_file 工具 - 读取文件内容
+ *
+ * 设计要点：
+ * - 拒绝二进制文件（避免 LLM 接收乱码内容导致理解偏差）
+ * - 大文件强制分段：超过 100KB 且无 offset 时拒绝，提示用 offset/limit 分段
+ * - 返回结果带行号，方便后续 edit_file 定位
  */
 
 import { BaseTool } from '../base';
 import type { ToolResult, ToolContext } from '@code-agent/shared';
-import { PathGuard, PathGuardError } from './PathGuard';
-import { FsService, FILE_CONFIG } from './FsService';
+import { PathGuard, PathGuardError } from '../support/PathGuard';
+import { FsService, FILE_CONFIG } from '../support/FsService';
 
 export class ReadFileTool extends BaseTool {
   name = 'read_file';
@@ -30,7 +35,9 @@ export class ReadFileTool extends BaseTool {
   };
   requiresConfirmation = false;
 
+  /** 路径安全校验（防逃逸、防符号链接穿越） */
   private pathGuard: PathGuard;
+  /** 底层文件操作封装 */
   private fsService: FsService;
 
   constructor(projectPath: string) {

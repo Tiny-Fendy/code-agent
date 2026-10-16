@@ -1,12 +1,15 @@
 /**
  * list_dir 工具 - 列出目录结构
+ *
+ * 输出树形文本（├── └── 风格），并按 .gitignore 过滤，
+ * 避免 node_modules 等噪音目录撑爆上下文。
  */
 
 import { BaseTool } from '../base';
 import type { ToolResult, ToolContext } from '@code-agent/shared';
-import { PathGuard, PathGuardError } from './PathGuard';
-import { FsService, FILE_CONFIG, type DirEntry } from './FsService';
-import { GitIgnoreFilter } from './gitignore';
+import { PathGuard, PathGuardError } from '../support/PathGuard';
+import { FsService, FILE_CONFIG, type DirEntry } from '../support/FsService';
+import { GitIgnoreFilter } from '../support/GitIgnoreFilter';
 
 export class ListDirTool extends BaseTool {
   name = 'list_dir';
@@ -26,8 +29,11 @@ export class ListDirTool extends BaseTool {
   };
   requiresConfirmation = false;
 
+  /** 路径安全校验（防逃逸、防符号链接穿越） */
   private pathGuard: PathGuard;
+  /** 底层文件操作封装 */
   private fsService: FsService;
+  /** .gitignore 过滤 */
   private gitIgnore: GitIgnoreFilter;
 
   constructor(projectPath: string) {
@@ -35,6 +41,8 @@ export class ListDirTool extends BaseTool {
     this.pathGuard = new PathGuard(projectPath);
     this.fsService = new FsService(projectPath);
     this.gitIgnore = new GitIgnoreFilter(projectPath);
+    // 异步加载 .gitignore，故意不 await：默认忽略项（.git）已同步注册，
+    // .gitignore 规则短暂延迟生效可接受（首次工具调用前通常已完成）
     this.gitIgnore.load();
   }
 
@@ -71,6 +79,12 @@ export class ListDirTool extends BaseTool {
     return this.success(output);
   }
 
+  /**
+   * 递归过滤被 .gitignore 忽略的条目
+   *
+   * 过滤基于相对项目根的完整路径（baseRelPath 拼接），
+   * 否则子目录里的同名文件会错误命中/漏掉根级规则。
+   */
   private filterEntries(entries: DirEntry[], baseRelPath: string): DirEntry[] {
     return entries
       .filter(entry => {
@@ -90,6 +104,12 @@ export class ListDirTool extends BaseTool {
       }));
   }
 
+  /**
+   * 格式化为树形文本（├── / └── 风格）
+   *
+   * @param prefix 父级传递下来的缩进前缀；最后一个子级的子树用空格缩进，
+   *               其余用 │ 保持竖线连续
+   */
   private formatTree(entries: DirEntry[], prefix = ''): string {
     let output = '';
     for (let i = 0; i < entries.length; i++) {

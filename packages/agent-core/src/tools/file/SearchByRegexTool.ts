@@ -1,13 +1,18 @@
 /**
  * search_by_regex 工具 - 按正则表达式搜索文件内容
  *
- * 基于 ripgrep 实现。
+ * 基于 ripgrep 实现，跳过 .gitignore 内容。
+ *
+ * 设计要点：
+ * - JS 正则直接转 ripgrep 语法（去掉 g flag），不强制用户学习 ripgrep 语法
+ * - 结果按 `文件:行号:内容` 格式输出，方便 LLM 下一步用 read_file 或 edit_file 操作
+ * - 超过 max_results 时尾部提示截断，防止回灌内容撑爆上下文
  */
 
 import { BaseTool } from '../base';
 import type { ToolResult, ToolContext } from '@code-agent/shared';
-import { PathGuard, PathGuardError } from './PathGuard';
-import { FsService, FILE_CONFIG } from './FsService';
+import { PathGuard, PathGuardError } from '../support/PathGuard';
+import { FsService, FILE_CONFIG } from '../support/FsService';
 
 export class SearchByRegexTool extends BaseTool {
   name = 'search_by_regex';
@@ -32,7 +37,9 @@ export class SearchByRegexTool extends BaseTool {
   };
   requiresConfirmation = false;
 
+  /** 路径安全校验（防逃逸、防符号链接穿越） */
   private pathGuard: PathGuard;
+  /** 底层文件操作封装（含 ripgrep 搜索） */
   private fsService: FsService;
 
   constructor(projectPath: string) {

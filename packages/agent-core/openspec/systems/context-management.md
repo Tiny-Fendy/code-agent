@@ -115,4 +115,4 @@ class ContextManager {
 | 日期 | 变更 | 关联 change |
 |------|------|------------|
 | 2026-10-14 | 初版设计：两层压缩机制（入口截断 + compact 摘要）、分区模型、切点安全规则 | `changes/context-compaction/` |
-| 2026-10-14 | Tasks 1-5 落地：分桶估算、入口截断、分区/切点/compact、`context_compact` 事件、Agent 编排接入（`maybeCompactContext()`，摘要限 800 token、失败跳过不中断） | `changes/context-compaction/` |
+| 2026-10-14 | Tasks 1-6 全部落地并通过端到端验证：分桶估算、入口截断、分区/切点/compact、`context_compact` 事件、Agent 编排接入（`maybeCompactContext()`，摘要限 800 token、失败跳过不中断） | `changes/context-compaction/` |

@@ -3,12 +3,17 @@
  *
  * 通过 old_string 和 new_string 进行精确匹配替换。
  * 参考 Claude Code 的 Edit 工具设计。
+ *
+ * 设计要点：
+ * - 多处匹配时强制报错（要求用户提供更长的上下文使匹配唯一，或设 replace_all）：
+ *   避免 LLM 未意识到同一段文本有多处出现，导致误替换。
+ * - requiresConfirmation=true：文件编辑是高危操作，必须用户确认。
  */
 
 import { BaseTool } from '../base';
 import type { ToolResult, ToolContext } from '@code-agent/shared';
-import { PathGuard, PathGuardError } from './PathGuard';
-import { FsService } from './FsService';
+import { PathGuard, PathGuardError } from '../support/PathGuard';
+import { FsService } from '../support/FsService';
 
 export class EditFileTool extends BaseTool {
   name = 'edit_file';
@@ -39,7 +44,9 @@ export class EditFileTool extends BaseTool {
   };
   requiresConfirmation = true;
 
+  /** 路径安全校验（防逃逸、防符号链接穿越） */
   private pathGuard: PathGuard;
+  /** 底层文件操作封装 */
   private fsService: FsService;
 
   constructor(projectPath: string) {

@@ -8,7 +8,7 @@
  */
 
 import path from 'node:path';
-import { promises as fs } from 'node:fs';
+import { promises as fs, realpathSync } from 'node:fs';
 
 export class PathGuardError extends Error {
   constructor(message: string) {
@@ -21,7 +21,14 @@ export class PathGuard {
   private readonly projectRoot: string;
 
   constructor(projectRoot: string) {
-    this.projectRoot = path.resolve(projectRoot);
+    const absRoot = path.resolve(projectRoot);
+    // 项目根也必须归一化：否则目标路径 realpath 后（如 /var/folders → /private/var/folders）
+    // 与未解析的根前缀比对会误判为符号链接逃逸
+    try {
+      this.projectRoot = realpathSync(absRoot);
+    } catch {
+      this.projectRoot = absRoot; // 根目录尚不存在时退回 resolve 结果
+    }
   }
 
   /**
