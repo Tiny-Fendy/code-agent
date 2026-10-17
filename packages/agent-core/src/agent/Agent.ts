@@ -346,9 +346,9 @@ export class Agent {
       });
       for await (const event of stream) {
         if (this.aborted) return;
-        if (event.type === 'text_delta') {
+        if (event.type === LLMEventType.TextDelta) {
           summary += event.data.delta;
-        } else if (event.type === 'error') {
+        } else if (event.type === LLMEventType.Error) {
           return; // 摘要请求出错 → 跳过压缩，任务继续
         }
       }
