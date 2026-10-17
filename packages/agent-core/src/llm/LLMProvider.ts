@@ -5,7 +5,7 @@
  * 不同模型提供商（OpenAI 兼容、Anthropic 等）继承此类实现具体逻辑。
  */
 
-import type { ChatMessage, ToolDefinition } from '@code-agent/shared';
+import type { ChatMessage, ToolDefinition } from '@code-agent/contracts';
 
 /** 聊天补全参数 */
 export interface ChatCompletionParams {
@@ -17,18 +17,19 @@ export interface ChatCompletionParams {
 }
 
 /**
- * LLM 流式事件（LLM 层的原始事件，比 Agent 事件更底层）
+ * LLM 流式事件类型枚举
  *
- * - text_delta: 文本增量
- * - tool_call_delta: 工具调用增量（参数可能是不完整的 JSON 字符串）
- * - message_complete: 整条消息组装完成，包含完整的 content 和 toolCalls
- * - error: 出错
+ * - TextDelta: 文本增量
+ * - ToolCallDelta: 工具调用增量（参数可能是不完整的 JSON 字符串）
+ * - MessageComplete: 整条消息组装完成，包含完整的 content 和 toolCalls
+ * - Error: 出错
  */
-export type LLMEventType =
-  | 'text_delta'
-  | 'tool_call_delta'
-  | 'message_complete'
-  | 'error';
+export enum LLMEventType {
+  TextDelta = 'text_delta',
+  ToolCallDelta = 'tool_call_delta',
+  MessageComplete = 'message_complete',
+  Error = 'error',
+}
 
 export interface LLMEvent {
   type: LLMEventType;

@@ -35,7 +35,7 @@ import type {
   ToolContext,
   ToolResult,
 } from '@code-agent/contracts';
-import { LLMProvider } from '@/llm/LLMProvider';
+import { LLMProvider, LLMEventType } from '@/llm/LLMProvider';
 import { OpenAICompatibleProvider } from '@/llm/OpenAICompatible';
 import { ToolManager } from '@/tools/ToolManager';
 import { ToolEventBuilder } from '@/agent/ToolEventBuilder';
@@ -285,20 +285,20 @@ export class Agent {
       if (this.aborted) break;
 
       switch (event.type) {
-        case 'text_delta':
+        case LLMEventType.TextDelta:
           yield { type: 'text_delta', data: event.data };
           break;
 
-        case 'tool_call_delta':
+        case LLMEventType.ToolCallDelta:
           // 工具调用的增量也透传给 UI（可以实时展示）
           yield { type: 'tool_call_delta', data: event.data };
           break;
 
-        case 'message_complete':
+        case LLMEventType.MessageComplete:
           completeMessage = event.data.message;
           break;
 
-        case 'error':
+        case LLMEventType.Error:
           // LLM 失败不向外 yield 事件，原因随返回值带出
           return { message: null, error: event.data.message as string };
       }

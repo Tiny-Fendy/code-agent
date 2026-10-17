@@ -27,8 +27,8 @@
  *   ...arguments 是逐段拼接的 JSON 字符串
  */
 
-import { LLMProvider, type ChatCompletionParams, type LLMEvent } from './LLMProvider';
-import type { ChatMessage, ToolCall } from '@code-agent/shared';
+import { LLMProvider, LLMEventType, type ChatCompletionParams, type LLMEvent } from './LLMProvider';
+import type { ChatMessage, ToolCall } from '@code-agent/contracts';
 import type { OpenAIStreamChunk } from './openai-types';
 
 /**
@@ -89,7 +89,7 @@ export class OpenAICompatibleProvider extends LLMProvider {
       });
     } catch (err) {
       yield {
-        type: 'error',
+        type: LLMEventType.Error,
         data: { message: `网络请求失败: ${(err as Error).message}` },
       };
       return;
@@ -98,7 +98,7 @@ export class OpenAICompatibleProvider extends LLMProvider {
     if (!response.ok) {
       const errorText = await response.text();
       yield {
-        type: 'error',
+        type: LLMEventType.Error,
         data: { message: `API 错误 (${response.status}): ${errorText}` },
       };
       return;
@@ -106,7 +106,7 @@ export class OpenAICompatibleProvider extends LLMProvider {
 
     if (!response.body) {
       yield {
-        type: 'error',
+        type: LLMEventType.Error,
         data: { message: '响应体为空' },
       };
       return;
@@ -144,7 +144,7 @@ export class OpenAICompatibleProvider extends LLMProvider {
               // 流结束，产出完整消息
               const completeMessage = this.buildCompleteMessage(fullContent, toolCalls);
               yield {
-                type: 'message_complete',
+                type: LLMEventType.MessageComplete,
                 data: { message: completeMessage },
               };
               return;
@@ -167,7 +167,7 @@ export class OpenAICompatibleProvider extends LLMProvider {
             if (delta.content && delta.content.length > 0) {
               fullContent += delta.content;
               yield {
-                type: 'text_delta',
+                type: LLMEventType.TextDelta,
                 data: { delta: delta.content },
               };
             }
@@ -194,7 +194,7 @@ export class OpenAICompatibleProvider extends LLMProvider {
 
               // 也推送 tool_call_delta 事件（UI 可以实时展示）
               yield {
-                type: 'tool_call_delta',
+                type: LLMEventType.ToolCallDelta,
                 data: { toolCalls: this.buildPartialToolCalls(toolCalls) },
               };
             }
@@ -211,13 +211,13 @@ export class OpenAICompatibleProvider extends LLMProvider {
       if (fullContent || toolCalls.length > 0) {
         const completeMessage = this.buildCompleteMessage(fullContent, toolCalls);
         yield {
-          type: 'message_complete',
+          type: LLMEventType.MessageComplete,
           data: { message: completeMessage },
         };
       }
     } catch (err) {
       yield {
-        type: 'error',
+        type: LLMEventType.Error,
         data: { message: `流式解析失败: ${(err as Error).message}` },
       };
     } finally {

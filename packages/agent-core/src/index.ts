@@ -33,9 +33,9 @@ export {
 export { RunCommandTool } from './tools/shell';
 
 // LLM
-export { LLMProvider } from './llm/LLMProvider';
+export { LLMProvider, LLMEventType } from './llm/LLMProvider';
 export { OpenAICompatibleProvider } from './llm/OpenAICompatible';
-export type { ChatCompletionParams, LLMEvent, LLMEventType } from './llm/LLMProvider';
+export type { ChatCompletionParams, LLMEvent } from './llm/LLMProvider';
 
 // 上下文
 export { ContextManager } from './context/ContextManager';
