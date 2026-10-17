@@ -5,7 +5,7 @@
  * 每个工具就是一个"函数"，有名称、描述、参数 schema，LLM 决定什么时候调用它。
  */
 
-import type { ToolDefinition, ToolResult, ToolContext } from '@code-agent/shared';
+import type { ToolDefinition, ToolResult, ToolContext } from '@code-agent/contracts';
 
 /**
  * Tool 接口

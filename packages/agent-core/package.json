@@ -18,7 +18,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@code-agent/shared": "workspace:*",
+    "@code-agent/contracts": "workspace:*",
     "ignore": "^5.3.2",
     "ripgrep": "^0.3.1"
   },

@@ -14,7 +14,7 @@
 
 import { spawn } from 'node:child_process';
 import { BaseTool } from '../base';
-import type { ToolResult, ToolContext } from '@code-agent/shared';
+import type { ToolResult, ToolContext } from '@code-agent/contracts';
 import { PathGuard, PathGuardError } from '../support/PathGuard';
 
 /** 输出上限（字符数），超出部分丢弃并提示 */

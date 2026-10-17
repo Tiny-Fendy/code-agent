@@ -8,7 +8,7 @@
  */
 
 import type { Tool } from './base';
-import type { ToolDefinition, ToolResult, ToolContext } from '@code-agent/shared';
+import type { ToolDefinition, ToolResult, ToolContext } from '@code-agent/contracts';
 import {
   ListDirTool,
   ReadFileTool,

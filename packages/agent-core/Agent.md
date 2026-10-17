@@ -75,7 +75,7 @@ LLM 接入的抽象层，采用适配器模式。
 
 ## 事件流协议
 
-Agent 通过 AsyncGenerator 向外推送事件，事件类型定义在 `@code-agent/shared` 中：
+Agent 通过 AsyncGenerator 向外推送事件，事件类型定义在 `@code-agent/contracts` 中：
 
 | 事件 | 触发时机 |
 | --- | --- |
@@ -110,4 +110,4 @@ pnpm --filter @code-agent/agent-core dev
 
 ## 依赖
 
-- `@code-agent/shared` — 共享类型
+- `@code-agent/contracts` — 共享类型与业务契约

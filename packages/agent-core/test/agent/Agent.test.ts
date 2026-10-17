@@ -16,7 +16,7 @@
  */
 
 import { Agent } from '@/index';
-import type { SendResult } from '@code-agent/shared';
+import type { SendResult } from '@code-agent/contracts';
 
 async function main() {
   const apiKey = process.env.OPENAI_API_KEY;

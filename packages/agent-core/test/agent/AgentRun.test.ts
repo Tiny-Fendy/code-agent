@@ -13,7 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import { Agent } from '../../src/agent/Agent';
 import { LLMProvider, type ChatCompletionParams, type LLMEvent } from '../../src/llm/LLMProvider';
-import type { AgentEvent, ChatMessage, SendResult } from '@code-agent/shared';
+import type { AgentEvent, ChatMessage, SendResult } from '@code-agent/contracts';
 
 /** 假 LLM：每次 chat 调用都按脚本重新生成事件 */
 class FakeProvider extends LLMProvider {

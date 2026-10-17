@@ -1,5 +1,5 @@
 import { BaseTool } from '../base';
-import type { ToolResult, ToolContext } from '@code-agent/shared';
+import type { ToolResult, ToolContext } from '@code-agent/contracts';
 
 /**
  * finish 工具：任务完成时由 LLM 主动调用，输出总结并结束循环

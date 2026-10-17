@@ -12,7 +12,7 @@
  * 当前为基础版本，压缩/裁剪能力开发中。
  */
 
-import type { ChatMessage } from '@code-agent/shared';
+import type { ChatMessage } from '@code-agent/contracts';
 
 /** compact 触发阈值（相对 maxTokens） */
 const COMPACT_THRESHOLD = 0.8;

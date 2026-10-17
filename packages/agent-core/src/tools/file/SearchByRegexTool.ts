@@ -10,7 +10,7 @@
  */
 
 import { BaseTool } from '../base';
-import type { ToolResult, ToolContext } from '@code-agent/shared';
+import type { ToolResult, ToolContext } from '@code-agent/contracts';
 import { PathGuard, PathGuardError } from '../support/PathGuard';
 import { FsService, FILE_CONFIG } from '../support/FsService';
 

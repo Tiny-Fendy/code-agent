@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ContextManager } from '@/context/ContextManager';
-import type { ChatMessage } from '@code-agent/shared';
+import type { ChatMessage } from '@code-agent/contracts';
 
 function countOf(messages: ChatMessage[]): number {
   const cm = new ContextManager();
