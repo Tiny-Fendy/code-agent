@@ -34,11 +34,12 @@ import type {
   ToolConfirmCallback,
   ToolContext,
   ToolResult,
-} from '@code-agent/shared';
-import { LLMProvider } from '../llm/LLMProvider';
-import { OpenAICompatibleProvider } from '../llm/OpenAICompatible';
-import { ToolManager } from '../tools/ToolManager';
-import { ContextManager } from '../context/ContextManager';
+} from '@code-agent/contracts';
+import { LLMProvider } from '@/llm/LLMProvider';
+import { OpenAICompatibleProvider } from '@/llm/OpenAICompatible';
+import { ToolManager } from '@/tools/ToolManager';
+import { ToolEventBuilder } from '@/agent/ToolEventBuilder';
+import { ContextManager } from '@/context/ContextManager';
 
 /** 用户拒绝执行工具时回灌给 LLM 的结果 */
 const DENIED_RESULT: ToolResult = {
@@ -179,78 +180,9 @@ export class Agent {
       for (const toolCall of toolCalls) {
         if (this.aborted) break;
 
-        // 高危工具：先请求用户确认，拒绝则跳过执行（仍需回灌 tool 消息，协议要求每个 tool_call 都有响应）
-        if (this.toolManager.requiresConfirmation(toolCall.name) && this.onConfirm) {
-          yield {
-            type: 'tool_call_confirm',
-            data: {
-              toolCallId: toolCall.id,
-              toolName: toolCall.name,
-              arguments: toolCall.arguments,
-            },
-          };
-
-          // 回调异常按拒绝处理（安全默认）
-          const approved = await this.onConfirm(toolCall).catch(() => false);
-          if (this.aborted) break;
-
-          if (!approved) {
-            yield {
-              type: 'tool_call_result',
-              data: {
-                toolCallId: toolCall.id,
-                toolName: toolCall.name,
-                result: DENIED_RESULT,
-              },
-            };
-            this.contextManager.addMessage({
-              role: 'tool',
-              content: `Error: ${DENIED_RESULT.error}`,
-              toolCallId: toolCall.id,
-              name: toolCall.name,
-            });
-            continue;
-          }
-        }
-
-        // 通知：开始执行工具
-        yield {
-          type: 'tool_call_start',
-          data: {
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-            arguments: toolCall.arguments,
-          },
-        };
-
-        // 执行工具
-        const result = await this.toolManager.execute(
-          toolCall.name,
-          toolCall.arguments,
-          this.toolContext,
-        );
-
-        // 通知：工具执行完成
-        yield {
-          type: 'tool_call_result',
-          data: {
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-            result,
-          },
-        };
-
-        // ---- 观察阶段：把工具结果回灌到上下文 ----
-        this.contextManager.addMessage({
-          role: 'tool',
-          content: result.success ? result.content : `Error: ${result.error}`,
-          toolCallId: toolCall.id,
-          name: toolCall.name,
-        });
-
-        // ---- finish 检测：LLM 主动结束任务，不再进入下一轮 ----
-        if (toolCall.name === 'finish' && result.success) {
-          return { status: 'finished', steps: step + 1, summary: result.content };
+        const toolResult = yield* this.executeToolCall(toolCall, step + 1);
+        if (toolResult) {
+          return toolResult;
         }
       }
 
@@ -259,6 +191,69 @@ export class Agent {
 
     // 超出最大步数
     return { status: 'maxSteps', steps: this.maxSteps };
+  }
+
+  /**
+   * 执行单个工具调用的完整生命周期
+   *
+   * 包含：确认流（可选）→ 开始 → 执行 → 结果 → 观察回灌 → finish 检测
+   * 返回 null 表示继续循环；返回 SendResult 表示任务结束（finished）
+   */
+  private async *executeToolCall(
+    toolCall: ToolCall,
+    step: number,
+  ): AsyncGenerator<AgentEvent, SendResult | null, unknown> {
+    const eventBuilder = new ToolEventBuilder(toolCall);
+
+    // 高危工具：先请求用户确认，拒绝则跳过执行（仍需回灌 tool 消息，协议要求每个 tool_call 都有响应）
+    if (this.toolManager.requiresConfirmation(toolCall.name) && this.onConfirm) {
+      yield eventBuilder.confirm();
+
+      // 回调异常按拒绝处理（安全默认）
+      const approved = await this.onConfirm(toolCall).catch(() => false);
+      if (this.aborted) {
+        return null;
+      }
+
+      if (!approved) {
+        yield eventBuilder.result(DENIED_RESULT);
+        this.contextManager.addMessage({
+          role: 'tool',
+          content: `Error: ${DENIED_RESULT.error}`,
+          toolCallId: toolCall.id,
+          name: toolCall.name,
+        });
+        return null;
+      }
+    }
+
+    // 通知：开始执行工具
+    yield eventBuilder.start();
+
+    // 执行工具
+    const result = await this.toolManager.execute(
+      toolCall.name,
+      toolCall.arguments,
+      this.toolContext,
+    );
+
+    // 通知：工具执行完成
+    yield eventBuilder.result(result);
+
+    // ---- 观察阶段：把工具结果回灌到上下文 ----
+    this.contextManager.addMessage({
+      role: 'tool',
+      content: result.success ? result.content : `Error: ${result.error}`,
+      toolCallId: toolCall.id,
+      name: toolCall.name,
+    });
+
+    // ---- finish 检测：LLM 主动结束任务，不再进入下一轮 ----
+    if (toolCall.name === 'finish' && result.success) {
+      return { status: 'finished', steps: step, summary: result.content };
+    }
+
+    return null;
   }
 
   /**
