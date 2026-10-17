@@ -1,0 +1,43 @@
+{
+  "name": "fetch-sse-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A robust SSE (Server-Sent Events) client based on fetch, with auto-reconnect, layered timeouts, cancellation and error classification",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "sse",
+    "server-sent-events",
+    "fetch",
+    "stream",
+    "eventsource",
+    "reconnect",
+    "timeout"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "vite": "^6",
+    "vitest": "^5.0.5"
+  }
+}
