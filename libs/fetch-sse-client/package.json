@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "A robust SSE (Server-Sent Events) client based on fetch, with auto-reconnect, layered timeouts, cancellation and error classification",
+  "description": "A robust SSE (Server-Sent Events) client based on fetch, with event-driven API, layered timeouts, cancellation and error classification",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
