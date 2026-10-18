@@ -21,7 +21,9 @@ export { createSSEParser, type SSEParser } from './parser.js';
 export type {
   SSEEvent,
   SSETimeouts,
+  SSEReconnectOptions,
   SSEClientOptions,
   SSEDoneInfo,
+  SSEReconnectingInfo,
   SSEClientEvents,
 } from './types.js';

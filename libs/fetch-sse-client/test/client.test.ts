@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { SSEClient } from '@/client';
 import { SSEClientError } from '@/errors';
-import type { SSEDoneInfo } from '@/types';
+import type { SSEDoneInfo, SSEReconnectingInfo } from '@/types';
 
 const encoder = new TextEncoder();
 
@@ -49,6 +49,7 @@ function collect(client: SSEClient): Promise<Collected> {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe('SSEClient 生命周期状态机', () => {
@@ -517,5 +518,579 @@ describe('SSEClient 请求组装', () => {
     const headers = capturedInit?.headers as Record<string, string>;
     expect(capturedInit?.body).toBe('raw-text');
     expect(headers['Content-Type']).toBeUndefined();
+  });
+});
+
+/** 订阅 reconnecting 事件的收集器 */
+function collectReconnecting(client: SSEClient): SSEReconnectingInfo[] {
+  const infos: SSEReconnectingInfo[] = [];
+  client.on('reconnecting', (info) => infos.push(info));
+  return infos;
+}
+
+describe('SSEClient 自动重连（仅首字节前，默认关闭）', () => {
+  it('不配置 reconnect：fetch 拒绝直接 error 终局，无 reconnecting 事件', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError('fetch failed');
+    });
+    const client = new SSEClient({ url: 'http://test/s', fetchImpl });
+    const reconnecting = collectReconnecting(client);
+    const collected = collect(client);
+    client.start();
+    const result = await collected;
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(reconnecting).toEqual([]);
+    expect(result.done).toBeUndefined();
+    expect(result.error?.type).toBe('network');
+    expect(result.error?.retryable).toBe(true);
+  });
+
+  it('fetch 拒绝 → reconnecting（attempt=1 / delay=baseDelay / error）→ 重试成功', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockImplementation(async () => sseResponse(['data: {"v":1}\n\n']));
+    const client = new SSEClient({
+      url: 'http://test/s',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      reconnect: { baseDelay: 5, jitter: 0 },
+    });
+    const reconnecting = collectReconnecting(client);
+    const collected = collect(client);
+    client.start();
+    const result = await collected;
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(reconnecting).toHaveLength(1);
+    expect(reconnecting[0].reason).toBe('error');
+    expect(reconnecting[0].attempt).toBe(1);
+    expect(reconnecting[0].delay).toBe(5);
+    expect(reconnecting[0].error).toBeInstanceOf(SSEClientError);
+    expect(reconnecting[0].error?.retryable).toBe(true);
+    expect(result.done).toEqual({ reason: 'complete', eventCount: 1 });
+    expect(result.error).toBeUndefined();
+  });
+
+  it('HTTP 429 → 自动重试，Retry-After 头（retry-after-ms）优先作为 delay', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response('rate limited', { status: 429, headers: { 'retry-after-ms': '25' } }),
+      )
+      .mockImplementation(async () => sseResponse(['data: {"v":1}\n\n']));
+    const client = new SSEClient({
+      url: 'http://test/s',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      reconnect: { baseDelay: 10_000, jitter: 0 },
+    });
+    const reconnecting = collectReconnecting(client);
+    const collected = collect(client);
+    client.start();
+    const result = await collected;
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(reconnecting[0].delay).toBe(25);
+    expect(reconnecting[0].error?.type).toBe('http');
+    expect(reconnecting[0].error?.status).toBe(429);
+    expect(reconnecting[0].error?.retryable).toBe(true);
+    expect(result.done?.reason).toBe('complete');
+  });
+
+  it('HTTP 429 无 Retry-After 头 → 回退指数退避 delay', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('rate limited', { status: 429 }))
+      .mockImplementation(async () => sseResponse(['data: {"v":1}\n\n']));
+    const client = new SSEClient({
+      url: 'http://test/s',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      reconnect: { baseDelay: 5, jitter: 0 },
+    });
+    const reconnecting = collectReconnecting(client);
+    const collected = collect(client);
+    client.start();
+    await collected;
+
+    expect(reconnecting[0].delay).toBe(5);
+  });
+
+  it('Retry-After 超过 maxDelay → 封顶 maxDelay', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response('overloaded', { status: 503, headers: { 'retry-after': '120' } }),
+      )
+      .mockImplementation(async () => sseResponse(['data: {"v":1}\n\n']));
+    const client = new SSEClient({
+      url: 'http://test/s',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      reconnect: { maxDelay: 500, jitter: 0 },
+    });
+    const reconnecting = collectReconnecting(client);
+    const collected = collect(client);
+    client.start();
+    await collected;
+
+    expect(reconnecting[0].delay).toBe(500);
+  });
+
+  it('HTTP 5xx（503）→ 自动重试成功', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('service unavailable', { status: 503 }))
+      .mockImplementation(async () => sseResponse(['data: {"v":1}\n\n']));
+    const client = new SSEClient({
+      url: 'http://test/s',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      reconnect: { baseDelay: 5, jitter: 0 },
+    });
+    const reconnecting = collectReconnecting(client);
+    const collected = collect(client);
+    client.start();
+    const result = await collected;
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(reconnecting).toHaveLength(1);
+    expect(result.done?.reason).toBe('complete');
+  });
+
+  it('connect 超时 → 自动重试（timeout 错误 retryable=true）', async () => {
+    let calls = 0;
+    const fetchImpl = vi.fn(async (_url: unknown, init: RequestInit) => {
+      calls++;
+      if (calls === 1) {
+        return new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () =>
+            reject(new DOMException('Aborted', 'AbortError')),
+          );
+        });
+      }
+      return sseResponse(['data: {"v":1}\n\n']);
+    });
+    const client = new SSEClient({
+      url: 'http://test/s',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      timeouts: { connect: 20 },
+      reconnect: { baseDelay: 5, jitter: 0 },
+    });
+    const reconnecting = collectReconnecting(client);
+    const collected = collect(client);
+    client.start();
+    const result = await collected;
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(reconnecting[0].error?.type).toBe('timeout');
+    expect(reconnecting[0].error?.message).toBe('Connect timeout');
+    expect(reconnecting[0].error?.retryable).toBe(true);
+    expect(result.done?.reason).toBe('complete');
+  });
+
+  it('maxRetries 耗尽 → error 终局，重试次数与 attempt 序列正确', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError('fetch failed');
+    });
+    const client = new SSEClient({
+      url: 'http://test/s',
+      fetchImpl,
+      reconnect: { maxRetries: 2, baseDelay: 5, jitter: 0 },
+    });
+    const reconnecting = collectReconnecting(client);
+    const collected = collect(client);
+    client.start();
+    const result = await collected;
+
+    expect(fetchImpl).toHaveBeenCalledTimes(3); // 首次 + 2 次重试
+    expect(reconnecting.map((info) => info.attempt)).toEqual([1, 2]);
+    expect(result.done).toBeUndefined();
+    expect(result.error?.type).toBe('network');
+    expect(result.error?.retryable).toBe(true);
+  });
+
+  it('重试等待期间 abort() → done aborted，不再发起新请求', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError('fetch failed');
+    });
+    const client = new SSEClient({
+      url: 'http://test/s',
+      fetchImpl,
+      reconnect: { baseDelay: 5_000, jitter: 0 },
+    });
+    const reconnecting = collectReconnecting(client);
+    const donePromise = new Promise<SSEDoneInfo>((resolve) => client.on('done', resolve));
+    let errorSeen: SSEClientError | undefined;
+    client.on('error', (err) => {
+      errorSeen = err;
+    });
+
+    client.start();
+    await vi.waitFor(() => expect(reconnecting).toHaveLength(1));
+    client.abort();
+    const info = await donePromise;
+
+    expect(info).toEqual({ reason: 'aborted', eventCount: 0 });
+    expect(errorSeen).toBeUndefined();
+    expect(fetchImpl).toHaveBeenCalledTimes(1); // 等待期间取消，不发起第二次请求
+  });
+
+  it('HTTP 4xx（404）→ 终结 error（retryable=false），不重试', async () => {
+    const fetchImpl = vi.fn(async () => new Response('not found', { status: 404 }));
+    const client = new SSEClient({
+      url: 'http://test/s',
+      fetchImpl,
+      reconnect: { baseDelay: 5, jitter: 0 },
+    });
+    const reconnecting = collectReconnecting(client);
+    const collected = collect(client);
+    client.start();
+    const result = await collected;
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(reconnecting).toEqual([]);
+    expect(result.error?.type).toBe('http');
+    expect(result.error?.status).toBe(404);
+    expect(result.error?.retryable).toBe(false);
+  });
+
+  it('流中断（已收到 data）→ 终结不自动重试，retryable=true 仅作提示', async () => {
+    const fetchImpl = vi.fn(async () => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode('data: {"v":1}\n\n'));
+          // 异步报错：同步 error 会清空队列导致首 chunk 被丢弃
+          setTimeout(() => controller.error(new Error('connection reset')), 10);
+        },
+      });
+      return new Response(stream, { status: 200 });
+    });
+    const client = new SSEClient({
+      url: 'http://test/s',
+      fetchImpl,
+      reconnect: { baseDelay: 5, jitter: 0 },
+    });
+    const reconnecting = collectReconnecting(client);
+    const collected = collect(client);
+    client.start();
+    const result = await collected;
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1); // 流中途失败不重试
+    expect(reconnecting).toEqual([]);
+    expect(result.data).toEqual([{ v: 1 }]);
+    expect(result.done).toBeUndefined();
+    expect(result.error?.type).toBe('network');
+    expect(result.error?.retryable).toBe(true); // 仅供消费方整体重发提示
+  });
+
+  it('流中途 JSON 解析失败 → 终结不自动重试', async () => {
+    const fetchImpl = vi.fn(async () => sseResponse(['data: not-json\n\n']));
+    const client = new SSEClient({
+      url: 'http://test/s',
+      fetchImpl,
+      reconnect: { baseDelay: 5, jitter: 0 },
+    });
+    const reconnecting = collectReconnecting(client);
+    const collected = collect(client);
+    client.start();
+    const result = await collected;
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(reconnecting).toEqual([]);
+    expect(result.error?.type).toBe('parse');
+  });
+
+  it('read 超时（流中途）→ 终结不自动重试', async () => {
+    const fetchImpl = vi.fn(async (_url: unknown, init: RequestInit) => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init.signal?.addEventListener('abort', () =>
+            controller.error(new DOMException('Aborted', 'AbortError')),
+          );
+        },
+      });
+      return new Response(stream, { status: 200 });
+    });
+    const client = new SSEClient({
+      url: 'http://test/s',
+      fetchImpl,
+      timeouts: { read: 20 },
+      reconnect: { baseDelay: 5, jitter: 0 },
+    });
+    const reconnecting = collectReconnecting(client);
+    const collected = collect(client);
+    client.start();
+    const result = await collected;
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(reconnecting).toEqual([]);
+    expect(result.error?.type).toBe('timeout');
+    expect(result.error?.message).toBe('Read timeout');
+  });
+
+  it('total 超时 → 终结不自动重试（retryable=false，不可被重试绕过）', async () => {
+    const fetchImpl = vi.fn(async (_url: unknown, init: RequestInit) => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init.signal?.addEventListener('abort', () =>
+            controller.error(new DOMException('Aborted', 'AbortError')),
+          );
+        },
+      });
+      return new Response(stream, { status: 200 });
+    });
+    const client = new SSEClient({
+      url: 'http://test/s',
+      fetchImpl,
+      timeouts: { total: 20 },
+      reconnect: { baseDelay: 5, jitter: 0 },
+    });
+    const reconnecting = collectReconnecting(client);
+    const collected = collect(client);
+    client.start();
+    const result = await collected;
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(reconnecting).toEqual([]);
+    expect(result.error?.type).toBe('timeout');
+    expect(result.error?.message).toBe('Total timeout');
+    expect(result.error?.retryable).toBe(false);
+  });
+
+  it('headers 函数每次尝试求值一次（重连场景支持动态刷新 token）', async () => {
+    const headersFn = vi.fn(() => ({ Authorization: 'Bearer dyn' }));
+    const fetchImpl = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockImplementation(async () => sseResponse(['data: {"v":1}\n\n']));
+    const client = new SSEClient({
+      url: 'http://test/s',
+      headers: headersFn,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      reconnect: { baseDelay: 5, jitter: 0 },
+    });
+    const collected = collect(client);
+    client.start();
+    await collected;
+
+    expect(headersFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('首字节前的错误重试不回传 Last-Event-ID（尚无已分发事件）', async () => {
+    const capturedHeaders: Array<Record<string, string>> = [];
+    const fetchImpl = vi
+      .fn()
+      .mockImplementationOnce(async (_url: unknown, init: RequestInit) => {
+        capturedHeaders.push(init.headers as Record<string, string>);
+        throw new TypeError('fetch failed');
+      })
+      .mockImplementation(async (_url: unknown, init: RequestInit) => {
+        capturedHeaders.push(init.headers as Record<string, string>);
+        return sseResponse(['data: {"v":1}\n\n']);
+      });
+    const client = new SSEClient({
+      url: 'http://test/s',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      reconnect: { baseDelay: 5, jitter: 0 },
+    });
+    const collected = collect(client);
+    client.start();
+    await collected;
+
+    expect(capturedHeaders).toHaveLength(2);
+    expect(capturedHeaders[0]['Last-Event-ID']).toBeUndefined();
+    expect(capturedHeaders[1]['Last-Event-ID']).toBeUndefined();
+  });
+});
+
+/** 模拟浏览器 document：仅实现可见性重连依赖的 hidden 与 visibilitychange 监听 */
+class FakeDocument {
+  hidden = false;
+  private listeners = new Set<() => void>();
+
+  addEventListener(_type: string, listener: () => void): void {
+    this.listeners.add(listener);
+  }
+
+  removeEventListener(_type: string, listener: () => void): void {
+    this.listeners.delete(listener);
+  }
+
+  /** 页面转入隐藏 */
+  hide(): void {
+    this.setHidden(true);
+  }
+
+  /** 页面转入可见 */
+  show(): void {
+    this.setHidden(false);
+  }
+
+  private setHidden(hidden: boolean): void {
+    this.hidden = hidden;
+    for (const listener of [...this.listeners]) listener();
+  }
+}
+
+/** 构造挂起流：发送初始内容后保持连接，abort 信号触发时报错（模拟长连接） */
+function hangingResponse(parts: string[], signal: AbortSignal): Response {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const part of parts) {
+        controller.enqueue(encoder.encode(part));
+      }
+      signal.addEventListener('abort', () =>
+        controller.error(new DOMException('Aborted', 'AbortError')),
+      );
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' },
+  });
+}
+
+describe('SSEClient 可见性重连（reconnectOnVisible，仅浏览器环境）', () => {
+  it('hidden → reconnecting{reason:hidden}（无 attempt/delay/error），visible → 新流发起', async () => {
+    const fakeDoc = new FakeDocument();
+    vi.stubGlobal('document', fakeDoc);
+    let fetchCount = 0;
+    const fetchImpl = vi.fn(async (_url: unknown, init: RequestInit) => {
+      fetchCount++;
+      return hangingResponse([`data: {"v":${fetchCount}}\n\n`], init.signal);
+    });
+    const client = new SSEClient({
+      url: 'http://test/s',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      reconnect: { reconnectOnVisible: true },
+    });
+    const received: unknown[] = [];
+    client.on('data', (payload) => received.push(payload));
+    const reconnecting = collectReconnecting(client);
+    const donePromise = new Promise<SSEDoneInfo>((resolve) => client.on('done', resolve));
+
+    client.start();
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+
+    fakeDoc.hide(); // hidden：中止当前请求，不发 done / error
+    await vi.waitFor(() => expect(reconnecting).toHaveLength(1));
+    expect(reconnecting[0]).toEqual({ reason: 'hidden' });
+
+    fakeDoc.show(); // visible：立即以新连接恢复
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(received).toHaveLength(2));
+    expect(received).toEqual([{ v: 1 }, { v: 2 }]);
+
+    client.abort();
+    const info = await donePromise;
+    expect(info.reason).toBe('aborted');
+  });
+
+  it('恢复连接按标准回传 Last-Event-ID', async () => {
+    const fakeDoc = new FakeDocument();
+    vi.stubGlobal('document', fakeDoc);
+    const capturedHeaders: Array<Record<string, string>> = [];
+    const fetchImpl = vi.fn(async (_url: unknown, init: RequestInit) => {
+      capturedHeaders.push(init.headers as Record<string, string>);
+      return hangingResponse(['id: 42\ndata: {"v":1}\n\n'], init.signal);
+    });
+    const client = new SSEClient({
+      url: 'http://test/s',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      reconnect: { reconnectOnVisible: true },
+    });
+    const received: unknown[] = [];
+    client.on('data', (payload) => received.push(payload));
+
+    client.start();
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+
+    fakeDoc.hide();
+    fakeDoc.show();
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
+
+    expect(capturedHeaders[0]['Last-Event-ID']).toBeUndefined();
+    expect(capturedHeaders[1]['Last-Event-ID']).toBe('42');
+
+    client.abort();
+    await new Promise<void>((resolve) => client.on('done', resolve));
+  });
+
+  it('新连接轮次的重试预算独立（hidden 恢复后 attempt 归零）', async () => {
+    const fakeDoc = new FakeDocument();
+    vi.stubGlobal('document', fakeDoc);
+    let calls = 0;
+    const fetchImpl = vi.fn(async (_url: unknown, init: RequestInit) => {
+      calls++;
+      if (calls === 1) return hangingResponse(['data: {"v":1}\n\n'], init.signal);
+      if (calls === 2) throw new TypeError('fetch failed');
+      return hangingResponse([`data: {"v":${calls}}\n\n`], init.signal);
+    });
+    const client = new SSEClient({
+      url: 'http://test/s',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      reconnect: { maxRetries: 1, baseDelay: 5, jitter: 0, reconnectOnVisible: true },
+    });
+    const received: unknown[] = [];
+    client.on('data', (payload) => received.push(payload));
+    const reconnecting = collectReconnecting(client);
+
+    client.start();
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+
+    // hidden 暂停 → visible 恢复（第 1 轮结束，预算归零）
+    fakeDoc.hide();
+    fakeDoc.show();
+
+    // 新轮次：第 2 次请求失败 → 第 1 次重试（attempt=1，预算独立）
+    await vi.waitFor(() => expect(reconnecting.map((info) => info.reason)).toEqual(['hidden', 'error']));
+    expect(reconnecting[1].attempt).toBe(1);
+
+    await vi.waitFor(() => expect(received).toEqual([{ v: 1 }, { v: 3 }]));
+    client.abort();
+    await new Promise<void>((resolve) => client.on('done', resolve));
+  });
+
+  it('暂停（hidden）期间 abort() 照常有效 → done aborted', async () => {
+    const fakeDoc = new FakeDocument();
+    vi.stubGlobal('document', fakeDoc);
+    const fetchImpl = vi.fn(async (_url: unknown, init: RequestInit) =>
+      hangingResponse(['data: {"v":1}\n\n'], init.signal),
+    );
+    const client = new SSEClient({
+      url: 'http://test/s',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      reconnect: { reconnectOnVisible: true },
+    });
+    const received: unknown[] = [];
+    client.on('data', (payload) => received.push(payload));
+    const reconnecting = collectReconnecting(client);
+    const donePromise = new Promise<SSEDoneInfo>((resolve) => client.on('done', resolve));
+
+    client.start();
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+    fakeDoc.hide();
+    await vi.waitFor(() => expect(reconnecting).toHaveLength(1));
+
+    client.abort(); // 暂停等待期间取消
+    const info = await donePromise;
+
+    expect(info).toEqual({ reason: 'aborted', eventCount: 1 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1); // 暂停期间不发起恢复请求
+  });
+
+  it('Node 环境（无 document）静默 no-op：正常消费流至终局', async () => {
+    const fetchImpl = vi.fn(async () => sseResponse(['data: {"v":1}\n\n']));
+    const client = new SSEClient({
+      url: 'http://test/s',
+      fetchImpl,
+      reconnect: { reconnectOnVisible: true },
+    });
+    const reconnecting = collectReconnecting(client);
+    const collected = collect(client);
+    client.start();
+    const result = await collected;
+
+    expect(result.done).toEqual({ reason: 'complete', eventCount: 1 });
+    expect(result.error).toBeUndefined();
+    expect(reconnecting).toEqual([]);
   });
 });

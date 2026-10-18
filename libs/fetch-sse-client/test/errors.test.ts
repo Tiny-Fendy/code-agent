@@ -28,4 +28,14 @@ describe('SSEClientError', () => {
     expect(new SSEClientError('http', 'x').type).toBe('http');
     expect(new SSEClientError('parse', 'x').type).toBe('parse');
   });
+
+  it('retryable 默认 false，显式传入生效', () => {
+    expect(new SSEClientError('network', 'x').retryable).toBe(false);
+    expect(
+      new SSEClientError('http', 'HTTP 503', { status: 503, retryable: true }).retryable,
+    ).toBe(true);
+    expect(new SSEClientError('timeout', 'Total timeout', { retryable: false }).retryable).toBe(
+      false,
+    );
+  });
 });
