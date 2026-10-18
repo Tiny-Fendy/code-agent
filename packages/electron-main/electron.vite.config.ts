@@ -2,7 +2,7 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import { resolve } from 'path';
 
 // electron-vite 配置
-// 主进程、preload、渲染层的入口分别指向三个 workspace 包
+// preload 入口与本包 src/preload/index.ts，实现收口在 @code-agent/rpc/preload
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
@@ -21,7 +21,7 @@ export default defineConfig({
       outDir: resolve(__dirname, 'dist/preload'),
       rollupOptions: {
         input: {
-          index: resolve(__dirname, '../electron-preload/src/index.ts'),
+          index: resolve(__dirname, 'src/preload/index.ts'),
         },
       },
     },
@@ -29,6 +29,7 @@ export default defineConfig({
   renderer: {
     root: resolve(__dirname, '../web'),
     build: {
+      outDir: resolve(__dirname, 'dist/renderer'),
       rollupOptions: {
         input: {
           index: resolve(__dirname, '../web/index.html'),

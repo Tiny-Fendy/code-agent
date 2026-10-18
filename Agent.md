@@ -20,22 +20,21 @@
 
 ## 项目结构
 
-Monorepo（pnpm workspace），共 5 个内部包：
+Monorepo（pnpm workspace），共 4 个业务包（`packages/`）+ 通用基础库（`libs/`）：
 
 ```
 packages/
-├── shared/              # 共享类型与常量（所有包共用）
+├── contracts/           # 共享契约与 DTO（所有包共用）
 ├── agent-core/          # ⭐ Agent 核心引擎（ReAct / 工具 / 上下文 / LLM）
-├── electron-main/       # Electron 主进程（窗口 / IPC / 本地服务）
-├── electron-preload/    # Preload 安全桥接层
+├── electron-main/       # Electron 主进程 + preload 入口（窗口 / IPC / 本地服务）
 └── web/                 # React 前端（渲染进程）
 ```
 
 **依赖关系**（箭头表示依赖方向）：
 
 ```
-web → electron-preload → shared
-electron-main → agent-core → shared
+web → rpc / contracts
+electron-main → agent-core → contracts
 ```
 
 ## 快速开始
@@ -85,22 +84,28 @@ pnpm typecheck
 
 ## 各包文档
 
-每个包目录下有独立的 `Agent.md`，包含该包的职责、核心模块、开发注意事项：
+每个包目录下有独立的 `Agent.md`，包含该包的职责、核心模块、开发注意事项。
+目录约定：`packages/` 为业务应用包，`libs/` 为通用基础库（可独立发布，维护周期与业务解耦）。
 
-- [`@code-agent/shared`](./packages/shared/Agent.md)
+- [`@code-agent/contracts`](./packages/contracts/Agent.md)
+- [`@code-agent/rpc`](./libs/rpc/) — RPC 通信机制包（protocol / main / preload / renderer / mock）
+- [`fetch-sse-client`](./libs/fetch-sse-client/README.md) — 通用 SSE 流式请求库（三层超时 / 取消封装 / 错误分类）
 - [`@code-agent/agent-core`](./packages/agent-core/Agent.md) ⭐ 核心学习包
-- [`@code-agent/electron-main`](./packages/electron-main/Agent.md)
-- [`@code-agent/electron-preload`](./packages/electron-preload/Agent.md)
+- [`@code-agent/electron-main`](./packages/electron-main/Agent.md)（含 preload 入口）
 - [`@code-agent/web`](./packages/web/Agent.md)
 
 ## 开发约定
 
 1. **Agent 核心优先**：agent-core 是学习重点，保持纯 TS，不依赖 UI 或 Electron
-2. **类型先行**：跨包通信的类型定义在 shared 中，确保前后端类型一致
+2. **类型先行**：跨包通信的类型定义在 contracts 中，确保前后端类型一致
 3. **安全第一**：preload 层只暴露必要的 API，不直接暴露 Node.js 能力
 4. **渐进式开发**：每个阶段有明确的可运行产出，不追求一步到位
 5. **禁止中间层 re-export**：除了包入口文件（`index.ts`）做统一对外导出外，包内部模块之间**不做 re-export**，该从哪里引用就从哪里直接引用，避免不必要的间接层
 6. **积极创建单元测试用例**：不止要开发功能，还要构建起完善的代码质量防护体系
+   - 测试框架统一使用 **Vitest**，测试文件就近放在 `test/` 目录（如 `packages/agent-core/test/`）
+   - 用例严格按**功能设计**（需求/规格）编写，不对着已有代码反推——防止测试随代码同错、形同虚设的假通过
+   - 断言必须验证真实行为，杜绝"调用不报错就算过"的假断言
+   - 场景覆盖要完善：正常路径、边界条件、异常路径缺一不可
 7. **积极编写注释**：注释不嫌多，切忌只写代码、不写注释。注释颗粒度要细致——不仅要写清"做什么"（功能说明），关键的设计点和改动处还必须写清"为什么"（设计思路与改动原因），让后续阅读者能快速理解代码背后的意图与来龙去脉
 
 ## 文档管理规范

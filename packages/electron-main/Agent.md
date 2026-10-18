@@ -6,6 +6,7 @@
 
 - 创建和管理浏览器窗口
 - 注册 IPC 处理器，接收渲染进程请求
+- 提供 preload 入口（哑管道，实现收口在 `@code-agent/rpc/preload`）
 - 提供本地能力服务（文件系统、终端进程等）
 - 管理 Agent 实例，调用 agent-core 执行逻辑
 - 配置持久化存储
@@ -15,6 +16,8 @@
 ```
 src/
 ├── index.ts                  # 主进程入口：创建窗口 + 注册 RPC 服务
+├── preload/
+│   └── index.ts              # preload 构建入口：一行 exposeRpcTransport() 调用
 └── rpc/
     ├── Router.ts             # 纯逻辑分发核心（不依赖 Electron，可单测）
     ├── bindIpc.ts            # Electron 薄适配：ipcMain.handle ↔ Router
@@ -33,7 +36,7 @@ src/
 - `rpc:invoke`：渲染层 → 主进程，载荷 `{ service, method, args }`，返回 `{ ok, data | error }` 信封
 - `rpc:stream`：主进程 → 渲染层，流式方法按 `streamId` 推送 `next` / `return` / `throw` 帧
 - 取消统一走句柄 `abort()` → 内置保留方法 `__stream.cancel(streamId)`，服务不各自定义 abort
-- 协议与服务契约（`MainServices`）定义在 `@code-agent/shared` 的 `rpc/` 下，类型单源
+- 服务契约（`MainServices`）定义在 `@code-agent/contracts`，类型单源；协议与机制实现（Router / bindIpc / createRpcStream）由 `@code-agent/rpc` 提供
 
 ## 核心服务
 
@@ -79,5 +82,6 @@ pnpm build:electron
 
 ## 依赖
 
-- `@code-agent/shared` — 共享类型
+- `@code-agent/contracts` — 共享类型与服务契约
+- `@code-agent/rpc` — RPC 通信机制（protocol / main / preload）
 - `@code-agent/agent-core` — Agent 引擎
