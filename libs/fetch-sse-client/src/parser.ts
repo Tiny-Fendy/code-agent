@@ -12,7 +12,7 @@
  * 参考：https://html.spec.whatwg.org/multipage/server-sent-events.html
  */
 
-import type { SSEEvent } from './types';
+import type { SSEEvent } from './types.js';
 
 /** 查找行尾：返回行内容结束位置（不含换行符）；找不到返回 -1 */
 function findLineEnd(s: string): number {
