@@ -1,28 +1,27 @@
 /**
  * fetch-sse-client
  *
- * 基于 fetch 的 SSE（Server-Sent Events）客户端库。
- * 基础能力：SSE 协议解析、自动重连、三层超时、原生 AbortSignal 取消。
+ * 基于 fetch 的 SSE（Server-Sent Events）客户端基础库。
+ * 能力：HTTP 请求组装 + SSE 协议解析 + 严格 JSON 解析（[DONE] 哨兵例外）
+ *      + 三层超时 + 取消封装 + 错误分类。
  *
  * 分层定位：
  * - 网络协议层：本包，与具体业务无关
  * - 业务协议层：调用方（如 agent-core 的 OpenAICompatibleProvider）
  */
 
-// 核心函数
-export { fetchSSE } from './fetch-sse';
+// 核心类
+export { SSEClient } from './client.js';
+export { SSEClientError, type SSEClientErrorType } from './errors.js';
 
-// 底层构件（也可单独使用）
-export { createSSEParser, type SSEParser } from './parser';
-export { calculateReconnectDelay } from './reconnect';
+// 底层解析器（可独立使用）
+export { createSSEParser, type SSEParser } from './parser.js';
 
 // 类型导出
 export type {
   SSEEvent,
-  SSEJsonEvent,
-  SSEError,
-  SSEErrorType,
-  SSEStreamEvent,
-  ReconnectStrategy,
-  FetchSSEOptions,
-} from './types';
+  SSETimeouts,
+  SSEClientOptions,
+  SSEDoneInfo,
+  SSEClientEvents,
+} from './types.js';
