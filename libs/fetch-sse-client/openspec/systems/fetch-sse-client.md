@@ -142,8 +142,8 @@ class SSEClientError extends Error {
 | 类 + 显式 start()，不用工厂函数即启动 / AsyncGenerator | 事件注册零时序风险（先 on 后 start 完全由调用方控制）；生命周期状态机清晰；可注入 fetchImpl 控制测试时机 |
 | 实例一次性，start() 重复调用抛错 | 重连是未来内部行为，不暴露复用语义；状态机保持简单 |
 | abort() 方法封装，不暴露 AbortSignal | 调用方零感知 AbortController；API 表面最小化 |
-| data 事件内部完成 JSON 解析，严格策略：解析失败即 parse 错误终结 | LLM 场景 data 必为 JSON；data 负载类型可信（必为对象）；畸形数据快速失败而非静默透传 |
-| `[DONE]` 哨兵库内消化，严格策略仅此一例例外，不提供 isEnd 钩子 | `[DONE]` 是 OpenAI 系约定俗成的协议层标志，不是业务内部事；通用 isEnd 钩子属于过度设计 |
+| data 事件内部完成 JSON 解析，严格策略：解析失败即 parse 错误终结 | LLM 场景 data 必为 JSON；data 负载类型可信（必为对象）；畸形数据快速失败而非静默透传。已对标 openai-node `fromSSEResponse`：JSON.parse 失败即 throw SyntaxError 终结，行为一致 |
+| `[DONE]` 哨兵库内消化，严格策略仅此一例例外，不提供 isEnd 钩子 | `[DONE]` 是 OpenAI 系约定俗成的协议层标志，不是业务内部事；通用 isEnd 钩子属于过度设计。对标验证：openai-node 精确匹配 `sse.data === '[DONE]'` 后 break 终结；@microsoft/fetch-event-source 作为通用库不处理哨兵（原样透传，属 EventSource 规范语义） |
 | abort 归 done 而非 error | 主动取消是正常终局（与 Agent SendResult 四态收口思路一致）；error 事件永远等于意外失败，消费端无需过滤 |
 | error 仅发终结性错误 | 无重连即无中间态错误，消费端收到 error 即可做终局处理 |
 | 默认 response.ok 检查 + onOpen 附加校验 | 非 2xx 判定有合理默认；content-type 等附加校验开放钩子，onOpen 抛错即终结 |
@@ -163,3 +163,4 @@ class SSEClientError extends Error {
 |------|------|------------|
 | 2026-10-16 | 初版落地：AsyncGenerator 函数式 API（fetchSSE）+ 解析/重连/超时模块，53 项测试 | — |
 | 2026-10-17 | API v2 定稿：类 + 事件驱动（data/done/error）替代 AsyncGenerator；取消封装为 abort()；内部 JSON 严格解析（`[DONE]` 哨兵为唯一例外，库内消化）；错误收敛为终结性 SSEClientError；重连能力延期，相关模块（reconnect.ts）撤出待回归 | 本会话 API 重设计讨论 |
+| 2026-10-18 | 对标验证：严格 JSON 解析 + `[DONE]` 哨兵策略与 openai-node（微软 Azure OpenAI 官方迁移指定包）行为一致；@microsoft/fetch-event-source 作为通用库对照（原样透传、不处理哨兵） | openai-node / fetch-event-source 源码调研 |
