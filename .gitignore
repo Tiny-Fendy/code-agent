@@ -12,6 +12,7 @@ build
 # IDE
 .vscode
 .idea
+.trae
 *.swp
 *.swo
 .DS_Store
