@@ -1,5 +1,5 @@
 {
-  "name": "@code-agent/shared",
+  "name": "@code-agent/contracts",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -16,5 +16,7 @@
     "dev": "tsc -p tsconfig.json --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@code-agent/rpc": "workspace:*"
+  }
 }

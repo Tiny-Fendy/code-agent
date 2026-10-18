@@ -1,6 +1,6 @@
 # 系统设计文档
 
-本目录实时记录 `@code-agent/shared` 包核心子系统的设计方案。
+本目录实时记录 `@code-agent/contracts` 包核心子系统的设计方案。
 
 ## 定位
 

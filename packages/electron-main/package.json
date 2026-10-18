@@ -11,7 +11,8 @@
     "test": "tsx --test src/**/*.test.ts"
   },
   "dependencies": {
-    "@code-agent/shared": "workspace:*",
+    "@code-agent/contracts": "workspace:*",
+    "@code-agent/rpc": "workspace:*",
     "@code-agent/agent-core": "workspace:*"
   },
   "devDependencies": {

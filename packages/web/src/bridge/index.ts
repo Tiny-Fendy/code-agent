@@ -9,8 +9,8 @@
  * 不感知环境差异。
  */
 
-import type { MainServices } from '@code-agent/shared';
-import { createRpcClient, type StreamMethodsOf } from './client';
+import type { MainServices } from '@code-agent/contracts';
+import { createRpcClient, type RpcClient, type StreamMethodsOf } from '@code-agent/rpc/renderer';
 import { createMockTransport } from './mock';
 
 const transport =
@@ -26,6 +26,6 @@ const streamMethods = {
   file: {},
 } satisfies StreamMethodsOf<MainServices>;
 
-export const rpc: MainServices = createRpcClient<MainServices>(transport, streamMethods);
+export const rpc: RpcClient<MainServices> = createRpcClient<MainServices>(transport, streamMethods);
 
 export default rpc;

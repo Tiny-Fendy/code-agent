@@ -14,7 +14,8 @@
     "antd": "^5.20.0",
     "@ant-design/icons": "^5.4.0",
     "zustand": "^4.5.0",
-    "@code-agent/shared": "workspace:*"
+    "@code-agent/contracts": "workspace:*",
+    "@code-agent/rpc": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "^18.3.0",

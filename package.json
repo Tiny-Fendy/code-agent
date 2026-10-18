@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "pnpm run build:packages && pnpm --filter @code-agent/electron-main run dev",
     "build": "pnpm run build:packages && pnpm run build:electron",
-    "build:packages": "pnpm run build:shared && pnpm run build:agent",
-    "build:shared": "pnpm --filter @code-agent/shared run build",
+    "build:packages": "pnpm run build:rpc && pnpm run build:contracts && pnpm run build:agent",
+    "build:rpc": "pnpm --filter @code-agent/rpc run build",
+    "build:contracts": "pnpm --filter @code-agent/contracts run build",
     "build:agent": "pnpm --filter @code-agent/agent-core run build",
     "build:electron": "pnpm --filter @code-agent/electron-main run build",
     "typecheck": "pnpm -r run typecheck"

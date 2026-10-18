@@ -9,9 +9,9 @@
  */
 
 import { Agent } from '@code-agent/agent-core';
-import type { AgentEvent, ChatService } from '@code-agent/shared';
-import { createRpcStream } from '../Router';
-import type { ServerRpcStream } from '../Router';
+import type { AgentEvent, ChatService, SendResult } from '@code-agent/contracts';
+import type { RpcStream } from '@code-agent/rpc/protocol';
+import { createRpcStream } from '@code-agent/rpc/main';
 import type { ConfigServiceImpl } from './ConfigServiceImpl';
 import type { WorkspaceState } from './WorkspaceState';
 
@@ -21,7 +21,7 @@ export class ChatServiceImpl implements ChatService {
     private readonly workspace: WorkspaceState,
   ) {}
 
-  send(_message: string): ServerRpcStream<AgentEvent> {
+  send(_message: string): RpcStream<AgentEvent, SendResult> {
     const appConfig = this.config.getCached();
 
     // AppConfig → AgentConfig 显式映射
@@ -37,7 +37,8 @@ export class ChatServiceImpl implements ChatService {
       this.workspace.projectPath ?? process.cwd(),
     );
 
-    const stream = createRpcStream<AgentEvent>(agent.run(_message));
+    // 形态 B：拉模式包装，生成器 return 的 SendResult 即流终局结果
+    const stream = createRpcStream(agent.run(_message));
     // 句柄 abort → Agent 中断
     stream.onAbort(() => agent.abort());
     return stream;

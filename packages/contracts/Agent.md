@@ -1,6 +1,6 @@
-# @code-agent/shared
+# @code-agent/contracts
 
-> 共享类型、常量与工具函数 — 所有包的共同依赖
+> 业务契约与共享类型 — 所有包的共同依赖（RPC 机制在 `@code-agent/rpc`）
 
 ## 职责
 
@@ -43,18 +43,15 @@ src/
 - `AppConfig` — 应用配置结构
 - `FileNode` — 文件树节点
 
-### RPC 协议与契约（rpc/）
+### RPC 服务契约（rpc/contract.ts）
 
-- `RPC` / `RpcRequest` / `RpcResponse` / `RpcErrorCode` — 通道常量与信封
-- `StreamFrame` / `StreamEvent` / `RpcStream` — 流式帧与句柄接口
-- `Transport` — preload ↔ web 的原子传输接口
-- `RpcError` — 信封错误还原后的异常类型
 - `ConfigService` / `ChatService` / `FileService` / `MainServices` — 服务契约（类型单源）
+- 协议机制类型（RPC 通道常量 / 信封 / 流帧 / `RpcStream` / `Transport` / `RpcError`）由 `@code-agent/rpc` 的 `protocol` 子路径提供，本包不 re-export
 
 ## 开发约定
 
 1. **只放类型和纯函数**：不放业务逻辑，不产生副作用
-2. **修改需谨慎**：shared 的变更会影响所有依赖包，改类型前先想清楚
+2. **修改需谨慎**：contracts 的变更会影响所有依赖包，改类型前先想清楚
 3. **保持轻量**：不要引入重型依赖，保持编译速度
 4. **构建产物**：使用 tsc 编译到 dist/，其他包通过 dist 引用
 5. **文档分层**：`openspec/changes/` 放单次需求文档；`openspec/systems/` 放核心子系统的方案设计文档（面向特性设计，非代码细节）：RPC 协议与契约——长期维护、随设计演进持续更新（规范见根 Agent.md）
@@ -62,11 +59,11 @@ src/
 ## 构建
 
 ```bash
-pnpm --filter @code-agent/shared build
+pnpm --filter @code-agent/contracts build
 ```
 
 监听模式（开发时用）：
 
 ```bash
-pnpm --filter @code-agent/shared dev
+pnpm --filter @code-agent/contracts dev
 ```

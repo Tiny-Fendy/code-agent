@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Layout, Typography, Space, Tag, Card, Input, Button, message } from 'antd';
 import { CodeOutlined, SendOutlined, StopOutlined } from '@ant-design/icons';
-import { type RpcStream, type AgentEvent, type AppConfig } from '@code-agent/shared';
+import { type AgentEvent, type AppConfig, type SendResult } from '@code-agent/contracts';
+import { type RpcStreamHandle } from '@code-agent/rpc/protocol';
 import rpc from './bridge';
 
 const { Header, Content } = Layout;
@@ -15,7 +16,7 @@ function App() {
   const [input, setInput] = useState('列出当前项目的目录结构');
   const [streaming, setStreaming] = useState(false);
   const [answer, setAnswer] = useState('');
-  const streamRef = useRef<RpcStream<AgentEvent> | null>(null);
+  const streamRef = useRef<RpcStreamHandle<AgentEvent, SendResult> | null>(null);
 
   // 冒烟：读配置，显示当前模型名
   useEffect(() => {
@@ -43,10 +44,23 @@ function App() {
     stream.on('tool_call_start', (data) => {
       setAnswer((prev) => `${prev}\n[调用工具] ${data.toolName}\n`);
     });
-    stream.onEnd((err) => {
+    // 唯一收口：协议层三态终局；completed 内再按 SendResult 分业务终局
+    stream.onEnd((end) => {
       setStreaming(false);
       streamRef.current = null;
-      if (err && err.code !== 'ABORTED') message.error(`对话失败：${err.message}`);
+
+      if (end.status === 'aborted') return; // 用户主动停止，复位不报错
+      if (end.status === 'failed') {
+        message.error(`对话失败：${end.error.message}`);
+        return;
+      }
+
+      const result = end.result;
+      if (result.status === 'llmFailed') {
+        message.error(`对话失败：${result.message}`);
+      } else if (result.status === 'maxSteps') {
+        message.warning(`已达最大思考步数（${result.steps}），任务可能未完成`);
+      }
     });
   };
 

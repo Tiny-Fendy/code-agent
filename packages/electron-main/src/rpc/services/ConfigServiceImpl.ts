@@ -13,7 +13,7 @@ import {
   type AppConfig,
   type ConfigService,
   type TestConnResult,
-} from '@code-agent/shared';
+} from '@code-agent/contracts';
 
 export class ConfigServiceImpl implements ConfigService {
   private readonly filePath: string;

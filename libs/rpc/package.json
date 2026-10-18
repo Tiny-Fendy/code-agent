@@ -1,0 +1,48 @@
+{
+  "name": "@code-agent/rpc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "RPC 通信机制包：协议 / 主进程 Router / preload 哑管道 / 渲染端客户端 / mock 框架，零业务概念",
+  "exports": {
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "import": "./dist/protocol.js"
+    },
+    "./main": {
+      "types": "./dist/main/index.d.ts",
+      "import": "./dist/main/index.js"
+    },
+    "./preload": {
+      "types": "./dist/preload/index.d.ts",
+      "import": "./dist/preload/index.js"
+    },
+    "./renderer": {
+      "types": "./dist/renderer/index.d.ts",
+      "import": "./dist/renderer/index.js"
+    },
+    "./mock": {
+      "types": "./dist/mock/index.d.ts",
+      "import": "./dist/mock/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test test/**/*.test.ts"
+  },
+  "peerDependencies": {
+    "electron": ">=32.0.0"
+  },
+  "peerDependenciesMeta": {
+    "electron": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "electron": "^32.0.0",
+    "tsx": "^4.19.0"
+  }
+}

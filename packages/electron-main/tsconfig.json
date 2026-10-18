@@ -3,11 +3,12 @@
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./src",
-    "types": ["node"]
+    "types": ["node", "vite/client"]
   },
   "include": ["src/**/*.ts"],
   "references": [
-    { "path": "../shared" },
+    { "path": "../contracts" },
+    { "path": "../../libs/rpc" },
     { "path": "../agent-core" }
   ]
 }

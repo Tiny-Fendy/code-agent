@@ -185,6 +185,9 @@ export function createRpcStream<E extends StreamEvent>(
 
 ```typescript
 // ChatService.ts：持有 Agent 实例，做 Agent ↔ RPC 的适配
+// 注：Agent 构造第三参数已演进为 options 对象 AgentOptions（日志子系统变更，见
+// agent-core openspec/changes/logging/design.md D4）；未来 confirmTool 落地真实
+// 确认门控时必须走 { onConfirm } 形式，不得再写第三位置参数。
 export class ChatServiceImpl implements ChatService {
   send(message: string) {
     const agent = new Agent(this.config, this.projectPath);

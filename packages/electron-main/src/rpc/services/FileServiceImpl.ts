@@ -8,7 +8,7 @@
 import { dialog } from 'electron';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import type { FileNode, FileService } from '@code-agent/shared';
+import type { FileNode, FileService } from '@code-agent/contracts';
 import type { WorkspaceState } from './WorkspaceState';
 
 /** 递归跳过的目录名 */

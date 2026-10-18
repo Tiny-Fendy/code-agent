@@ -2,7 +2,7 @@
  * Agent 相关共享类型
  */
 
-import type { ToolResult } from './tool';
+import type { ToolResult } from './tool.js';
 
 // 对话角色
 export type ChatRole = 'system' | 'user' | 'assistant' | 'tool';

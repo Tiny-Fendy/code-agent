@@ -57,8 +57,9 @@ const config = await rpc.config.get();
 // 流式方法：同步拿到事件句柄
 const stream = rpc.chat.send('你好');
 stream.on('text_delta', (data) => console.log(data.delta));
-stream.onEnd((err) => {/* err?.code === 'ABORTED' 表示取消 */});
-stream.abort(); // 取消
+// 终局三态收口：completed（含 SendResult）/ failed / aborted
+stream.onEnd((end) => { if (end.status === 'failed') console.error(end.error); });
+stream.abort(); // 取消 → onEnd 收到 { status: 'aborted' }
 ```
 
 好处：
@@ -100,4 +101,5 @@ pnpm dev
 
 ## 依赖
 
-- `@code-agent/shared` — 共享类型
+- `@code-agent/contracts` — 共享类型与服务契约
+- `@code-agent/rpc` — RPC 通信机制（renderer 客户端 / mock 框架）

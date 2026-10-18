@@ -9,9 +9,9 @@
  * 不允许函数、class 实例等。
  */
 
-import type { AgentEvent } from '../types/agent';
-import type { AppConfig, FileNode } from '../types/ipc';
-import type { RpcStream } from './protocol';
+import type { AgentEvent, SendResult } from '../types/agent.js';
+import type { AppConfig, FileNode } from '../types/ipc.js';
+import type { RpcStream } from '@code-agent/rpc/protocol';
 
 // ---- 契约数据类型 ----
 
@@ -30,8 +30,12 @@ export interface ConfigService {
 }
 
 export interface ChatService {
-  /** 发送消息，返回 Agent 事件流句柄（流式方法） */
-  send(message: string): RpcStream<AgentEvent>;
+  /**
+   * 发送消息，返回 Agent 事件流句柄（流式方法）。
+   * 事件流只含过程数据；终局结果 SendResult 穷尽四个退出点，
+   * 由句柄 onEnd 送达（业务失败如 LLM 上游错误也在结果的 llmFailed 中表达）。
+   */
+  send(message: string): RpcStream<AgentEvent, SendResult>;
   /** 回传工具确认结果 */
   confirmTool(toolCallId: string, ok: boolean): Promise<void>;
 }

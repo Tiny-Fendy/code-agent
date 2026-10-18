@@ -6,11 +6,14 @@
  */
 
 import { ipcMain, type WebContents } from 'electron';
-import { RPC, type RpcRequest } from '@code-agent/shared';
-import type { RpcRouter } from './Router';
-import type { StreamEmitter } from './Router';
+import { RPC, type RpcRequest } from '../protocol.js';
+import type { RpcRouter } from './Router.js';
+import type { StreamEmitter } from './Router.js';
 
-export function bindIpc(router: RpcRouter): void {
+/** 只依赖 dispatch 的最小结构：任意契约泛型的 RpcRouter 都可绑定（规避泛型不变性） */
+type DispatchSurface = Pick<RpcRouter, 'dispatch'>;
+
+export function bindIpc(router: DispatchSurface): void {
   ipcMain.handle(RPC.INVOKE, (event, req: RpcRequest) => {
     const sender: WebContents = event.sender;
     const emitter: StreamEmitter = {
