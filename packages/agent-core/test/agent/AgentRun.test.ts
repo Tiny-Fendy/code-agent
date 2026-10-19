@@ -25,6 +25,26 @@ class FakeProvider extends LLMProvider {
   }
 }
 
+/** 假 Logger：记录全部日志调用供断言（Logger 契约：不抛异常） */
+class FakeLogger {
+  readonly logs: Array<{ level: string; message: string; context?: Record<string, unknown> }> = [];
+  debug(message: string, context?: Record<string, unknown>): void {
+    this.logs.push({ level: 'debug', message, context });
+  }
+  info(message: string, context?: Record<string, unknown>): void {
+    this.logs.push({ level: 'info', message, context });
+  }
+  warn(message: string, context?: Record<string, unknown>): void {
+    this.logs.push({ level: 'warn', message, context });
+  }
+  error(message: string, context?: Record<string, unknown>): void {
+    this.logs.push({ level: 'error', message, context });
+  }
+  messages(level: string): string[] {
+    return this.logs.filter((l) => l.level === level).map((l) => l.message);
+  }
+}
+
 function createAgent(script: () => AsyncGenerator<LLMEvent>, maxSteps = 10): Agent {
   const agent = new Agent(
     { apiKey: 'fake', baseUrl: 'http://fake', model: 'fake', maxSteps },
@@ -33,6 +53,21 @@ function createAgent(script: () => AsyncGenerator<LLMEvent>, maxSteps = 10): Age
   // Agent 未提供 Provider 注入点，测试直接替换私有字段
   (agent as unknown as { llm: LLMProvider }).llm = new FakeProvider(script);
   return agent;
+}
+
+/** 带 FakeLogger 注入的 createAgent（日志埋点断言用） */
+function createAgentWithLogger(
+  script: () => AsyncGenerator<LLMEvent>,
+  maxSteps = 10,
+): { agent: Agent; logger: FakeLogger } {
+  const logger = new FakeLogger();
+  const agent = new Agent(
+    { apiKey: 'fake', baseUrl: 'http://fake', model: 'fake', maxSteps },
+    process.cwd(),
+    { logger },
+  );
+  (agent as unknown as { llm: LLMProvider }).llm = new FakeProvider(script);
+  return { agent, logger };
 }
 
 /** 手动迭代收集事件与生成器返回值（for-await 会丢弃 return 值） */
@@ -165,5 +200,99 @@ describe('Agent.run 终局结果', () => {
     let r = await gen.next();
     while (!r.done) r = await gen.next();
     expect(r.value).toEqual({ status: 'aborted' });
+  });
+});
+
+describe('Agent.run 日志埋点（FakeLogger 注入）', () => {
+  it('正常完成：任务开始 → LLM 请求/响应 → 任务终局（completed）全链路 info', async () => {
+    const { agent, logger } = createAgentWithLogger(async function* () {
+      yield { type: 'text_delta', data: { delta: '你好' } };
+      yield { type: 'message_complete', data: { message: textMessage('你好') } };
+    });
+
+    await collect(agent.run('列出结构'));
+
+    const infos = logger.messages('info');
+    expect(infos[0]).toBe('任务开始');
+    expect(logger.logs[0].context).toMatchObject({ messageLength: '列出结构'.length, maxSteps: 10 });
+
+    expect(infos).toContain('LLM 请求');
+    expect(infos).toContain('LLM 响应');
+    expect(infos[infos.length - 1]).toBe('任务终局');
+    expect(logger.logs[logger.logs.length - 1].context).toMatchObject({ status: 'completed', steps: 1 });
+  });
+
+  it('finish 工具：工具执行完成 info + finish 命中 info + 终局 finished 含 summaryLength', async () => {
+    const { agent, logger } = createAgentWithLogger(async function* () {
+      yield {
+        type: 'message_complete',
+        data: {
+          message: {
+            role: 'assistant',
+            content: '',
+            toolCalls: [{ id: 'tc-finish', name: 'finish', arguments: { summary: '全部完成' } }],
+          },
+        },
+      };
+    });
+
+    await collect(agent.run('hi'));
+
+    const infos = logger.messages('info');
+    expect(infos).toContain('工具执行完成');
+    expect(infos).toContain('finish 命中');
+    const last = logger.logs[logger.logs.length - 1];
+    expect(last.context).toMatchObject({ status: 'finished', steps: 1, summaryLength: '全部完成'.length });
+  });
+
+  it('LLM 失败：LLM 调用失败 error + 终局 llmFailed 携带错误信息', async () => {
+    const { agent, logger } = createAgentWithLogger(async function* () {
+      yield { type: 'error', data: { message: '[network] boom' } };
+    });
+
+    await collect(agent.run('hi'));
+
+    expect(logger.messages('error')).toEqual(['LLM 调用失败']);
+    const errorLog = logger.logs.find((l) => l.level === 'error');
+    expect(errorLog?.context).toMatchObject({ error: '[network] boom' });
+
+    const last = logger.logs[logger.logs.length - 1];
+    expect(last.context).toMatchObject({ status: 'llmFailed', error: '[network] boom' });
+  });
+
+  it('工具未找到：ToolManager 层 warn（工具不存在时）', async () => {
+    // FakeProvider 每轮重新生成脚本：用 callCount 区分轮次，
+    // 第一轮返回工具调用（单 yield），第二轮返回纯文本
+    let callCount = 0;
+    const { agent, logger } = createAgentWithLogger(async function* (): AsyncGenerator<LLMEvent> {
+      callCount++;
+      if (callCount === 1) {
+        yield {
+          type: 'message_complete',
+          data: { message: toolCallMessage() }, // nonexistent_tool
+        };
+      } else {
+        yield { type: 'message_complete', data: { message: textMessage('结束') } };
+      }
+    }, 3);
+
+    const { result } = await collect(agent.run('hi'));
+
+    expect(result).toEqual({ status: 'completed', steps: 2 });
+    expect(logger.messages('warn')).toContain('工具未找到');
+    const warnLog = logger.logs.find((l) => l.message === '工具未找到');
+    expect(warnLog?.context).toMatchObject({ tool: 'nonexistent_tool' });
+  });
+
+  it('LLM 请求原文与响应原文进 debug 级别', async () => {
+    const { agent, logger } = createAgentWithLogger(async function* () {
+      yield { type: 'message_complete', data: { message: textMessage('ok') } };
+    });
+
+    await collect(agent.run('hi'));
+
+    const debugs = logger.messages('debug');
+    expect(debugs).toContain('LLM 请求原文');
+    expect(debugs).toContain('LLM 响应原文');
   });
 });

@@ -110,6 +110,27 @@ describe('ContextManager tool 结果入口截断', () => {
     cm.addMessage(original);
     expect(original.content.length).toBe(10000);
   });
+
+  it('超限截断时输出 warn 日志（含原长度与上限），未超限不输出', () => {
+    const logs: Array<{ level: string; message: string; context?: Record<string, unknown> }> = [];
+    const logger = {
+      debug: () => {},
+      info: () => {},
+      warn: (message: string, context?: Record<string, unknown>) => {
+        logs.push({ level: 'warn', message, context });
+      },
+      error: () => {},
+    };
+    const cm = new ContextManager(8000, 100, logger);
+
+    cm.addMessage({ role: 'tool', content: 'y'.repeat(150), toolCallId: 't1', name: 'run_command' });
+    expect(logs).toHaveLength(1);
+    expect(logs[0].message).toBe('tool 结果超限截断');
+    expect(logs[0].context).toMatchObject({ length: 150, limit: 100 });
+
+    cm.addMessage({ role: 'tool', content: 'z'.repeat(50), toolCallId: 't2', name: 'run_command' });
+    expect(logs).toHaveLength(1); // 未超限无日志
+  });
 });
 
 describe('ContextManager shouldCompact', () => {
