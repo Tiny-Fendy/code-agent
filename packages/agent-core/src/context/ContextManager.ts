@@ -12,7 +12,8 @@
  * 当前为基础版本，压缩/裁剪能力开发中。
  */
 
-import type { ChatMessage } from '@code-agent/contracts';
+import type { ChatMessage, Logger } from '@code-agent/contracts';
+import { NullLogger } from '../logging/NullLogger.js';
 
 /** compact 触发阈值（相对 maxTokens） */
 const COMPACT_THRESHOLD = 0.8;
@@ -31,18 +32,25 @@ export class ContextManager {
   private maxTokens: number;
   /** tool 结果截断上限（字符数） */
   private readonly toolResultLimit: number;
+  private readonly logger: Logger;
 
   constructor(
     maxTokens = ContextManager.DEFAULT_MAX_TOKENS,
     toolResultLimit = ContextManager.DEFAULT_TOOL_RESULT_LIMIT,
+    logger: Logger = new NullLogger(),
   ) {
     this.maxTokens = maxTokens;
     this.toolResultLimit = toolResultLimit;
+    this.logger = logger;
   }
 
   /** 添加一条消息；超长的 tool 结果自动截断（头 2/3 + 尾 1/3） */
   addMessage(message: ChatMessage): void {
     if (message.role === 'tool' && message.content.length > this.toolResultLimit) {
+      this.logger.warn('tool 结果超限截断', {
+        length: message.content.length,
+        limit: this.toolResultLimit,
+      });
       this.messages.push({ ...message, content: this.truncateToolResult(message.content) });
       return;
     }

@@ -28,18 +28,20 @@
 import type {
   AgentConfig,
   AgentEvent,
+  AgentOptions,
   ChatMessage,
+  Logger,
   SendResult,
   ToolCall,
-  ToolConfirmCallback,
   ToolContext,
   ToolResult,
 } from '@code-agent/contracts';
-import { LLMProvider, LLMEventType } from '@/llm/LLMProvider';
-import { OpenAICompatibleProvider } from '@/llm/OpenAICompatible';
-import { ToolManager } from '@/tools/ToolManager';
-import { ToolEventBuilder } from '@/agent/ToolEventBuilder';
-import { ContextManager } from '@/context/ContextManager';
+import { LLMProvider, LLMEventType } from '../llm/LLMProvider.js';
+import { OpenAICompatibleProvider } from '../llm/OpenAICompatible.js';
+import { ToolManager } from '../tools/ToolManager.js';
+import { ToolEventBuilder } from './ToolEventBuilder.js';
+import { ContextManager } from '../context/ContextManager.js';
+import { NullLogger } from '../logging/NullLogger.js';
 
 /** 用户拒绝执行工具时回灌给 LLM 的结果 */
 const DENIED_RESULT: ToolResult = {
@@ -100,17 +102,24 @@ export class Agent {
   private maxSteps: number;
   private aborted = false;
   /** 高危工具确认回调；未注入时自动放行（无 UI 场景） */
-  private readonly onConfirm?: ToolConfirmCallback;
+  private readonly onConfirm?: AgentOptions['onConfirm'];
+  /** 开发者诊断日志；未注入时 NullLogger（库静默，与 AgentEvent 严格分离） */
+  private readonly logger: Logger;
 
-  constructor(config: AgentConfig, projectPath: string, onConfirm?: ToolConfirmCallback) {
+  constructor(config: AgentConfig, projectPath: string, options?: AgentOptions) {
     this.config = config;
     this.llm = new OpenAICompatibleProvider(config.apiKey, config.baseUrl);
-    // 内置工具在 ToolManager 构造时自动注册
-    this.toolManager = new ToolManager(projectPath);
-    this.toolContext = { projectPath };
+    this.logger = options?.logger ?? new NullLogger();
+    this.onConfirm = options?.onConfirm;
+    // 内置工具在 ToolManager 构造时自动注册；同一 logger 实例贯穿全链路
+    this.toolManager = new ToolManager(projectPath, this.logger);
+    this.toolContext = { projectPath, logger: this.logger };
     this.maxSteps = config.maxSteps ?? 10;
-    this.contextManager = new ContextManager(config.contextTokens);
-    this.onConfirm = onConfirm;
+    this.contextManager = new ContextManager(
+      config.contextTokens,
+      ContextManager.DEFAULT_TOOL_RESULT_LIMIT,
+      this.logger,
+    );
 
     // 初始化系统提示词
     const systemPrompt = config.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
@@ -127,6 +136,22 @@ export class Agent {
    * 这是 ReAct 模式的核心入口。
    */
   async *run(userMessage: string): AsyncGenerator<AgentEvent, SendResult> {
+    this.logger.info('任务开始', { messageLength: userMessage.length, maxSteps: this.maxSteps });
+
+    const result = yield* this.runLoop(userMessage);
+
+    // 终局日志：穷尽四态（completed / finished / llmFailed / maxSteps / aborted）
+    const ctx: Record<string, unknown> = { status: result.status };
+    if ('steps' in result && result.steps !== undefined) ctx.steps = result.steps;
+    if ('summary' in result) ctx.summaryLength = result.summary.length;
+    if ('message' in result && result.message) ctx.error = result.message;
+    this.logger.info('任务终局', ctx);
+
+    return result;
+  }
+
+  /** ReAct 主循环（run 的执行体，开始/终局日志由外壳统一记录） */
+  private async *runLoop(userMessage: string): AsyncGenerator<AgentEvent, SendResult> {
     this.aborted = false;
 
     // 1. 添加用户消息到上下文
@@ -208,14 +233,26 @@ export class Agent {
     // 高危工具：先请求用户确认，拒绝则跳过执行（仍需回灌 tool 消息，协议要求每个 tool_call 都有响应）
     if (this.toolManager.requiresConfirmation(toolCall.name) && this.onConfirm) {
       yield eventBuilder.confirm();
+      this.logger.info('确认请求', { tool: toolCall.name });
 
       // 回调异常按拒绝处理（安全默认）
-      const approved = await this.onConfirm(toolCall).catch(() => false);
+      const confirmStartAt = Date.now();
+      let approved: boolean;
+      try {
+        approved = await this.onConfirm(toolCall);
+      } catch {
+        this.logger.warn('确认回调异常，按拒绝处理', { tool: toolCall.name });
+        approved = false;
+      }
       if (this.aborted) {
         return null;
       }
 
       if (!approved) {
+        this.logger.warn('确认拒绝', {
+          tool: toolCall.name,
+          durationMs: Date.now() - confirmStartAt,
+        });
         yield eventBuilder.result(DENIED_RESULT);
         this.contextManager.addMessage({
           role: 'tool',
@@ -225,17 +262,27 @@ export class Agent {
         });
         return null;
       }
+      this.logger.info('确认通过', {
+        tool: toolCall.name,
+        durationMs: Date.now() - confirmStartAt,
+      });
     }
 
     // 通知：开始执行工具
     yield eventBuilder.start();
 
     // 执行工具
+    const executeStartAt = Date.now();
     const result = await this.toolManager.execute(
       toolCall.name,
       toolCall.arguments,
       this.toolContext,
     );
+    this.logger.info('工具执行完成', {
+      tool: toolCall.name,
+      success: result.success,
+      durationMs: Date.now() - executeStartAt,
+    });
 
     // 通知：工具执行完成
     yield eventBuilder.result(result);
@@ -250,6 +297,7 @@ export class Agent {
 
     // ---- finish 检测：LLM 主动结束任务，不再进入下一轮 ----
     if (toolCall.name === 'finish' && result.success) {
+      this.logger.info('finish 命中', { summary: result.content });
       return { status: 'finished', steps: step, summary: result.content };
     }
 
@@ -271,6 +319,15 @@ export class Agent {
     const messages = this.contextManager.getMessages();
     const tools = this.toolManager.getDefinitions();
 
+    this.logger.info('LLM 请求', {
+      model: this.config.model,
+      messages: messages.length,
+      tokens: this.contextManager.getTokenCount(),
+      tools: tools.length,
+    });
+    this.logger.debug('LLM 请求原文', { messages, tools });
+
+    const startAt = Date.now();
     const stream = this.llm.chat({
       model: this.config.model,
       messages,
@@ -300,8 +357,18 @@ export class Agent {
 
         case LLMEventType.Error:
           // LLM 失败不向外 yield 事件，原因随返回值带出
+          this.logger.error('LLM 调用失败', { error: event.data.message as string });
           return { message: null, error: event.data.message as string };
       }
+    }
+
+    if (completeMessage) {
+      this.logger.info('LLM 响应', {
+        durationMs: Date.now() - startAt,
+        contentLength: completeMessage.content.length,
+        toolCalls: completeMessage.toolCalls?.length ?? 0,
+      });
+      this.logger.debug('LLM 响应原文', { message: completeMessage });
     }
 
     return { message: completeMessage };
@@ -322,6 +389,8 @@ export class Agent {
     const range = cm.getCompactableRange();
     if (range.length === 0) return;
     const before = cm.getTokenCount();
+    this.logger.info('压缩触发', { before, range: range.length });
+    const compactStartAt = Date.now();
 
     // 序列化摘要区为对话记录文本
     const transcript = range
@@ -349,10 +418,14 @@ export class Agent {
         if (event.type === LLMEventType.TextDelta) {
           summary += event.data.delta;
         } else if (event.type === LLMEventType.Error) {
+          this.logger.warn('压缩摘要请求失败，跳过本轮压缩', {
+            error: event.data.message as string,
+          });
           return; // 摘要请求出错 → 跳过压缩，任务继续
         }
       }
     } catch {
+      this.logger.warn('压缩摘要请求异常，跳过本轮压缩');
       return; // 网络/模型异常 → 跳过压缩，任务继续
     }
 
@@ -360,10 +433,22 @@ export class Agent {
     if (!summary) return;
 
     // 防抖防御：压缩后仍超触发阈值（摘要体积过大）→ 跳过应用
-    if (cm.estimateAfterCompact(summary) >= cm.getCompactThreshold()) return;
+    if (cm.estimateAfterCompact(summary) >= cm.getCompactThreshold()) {
+      this.logger.warn('压缩后预估仍超阈值，防抖跳过', {
+        estimate: cm.estimateAfterCompact(summary),
+        threshold: cm.getCompactThreshold(),
+      });
+      return;
+    }
 
     cm.compact(summary);
-    yield { type: 'context_compact', data: { before, after: cm.getTokenCount() } };
+    const after = cm.getTokenCount();
+    this.logger.info('压缩完成', {
+      before,
+      after,
+      durationMs: Date.now() - compactStartAt,
+    });
+    yield { type: 'context_compact', data: { before, after } };
   }
 
   /** 中断当前执行 */

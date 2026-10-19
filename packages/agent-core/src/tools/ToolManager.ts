@@ -7,22 +7,25 @@
  * 内置工具在构造时自动注册；外部可通过 register() 追加自定义工具。
  */
 
-import type { Tool } from './base';
-import type { ToolDefinition, ToolResult, ToolContext } from '@code-agent/contracts';
+import type { Tool } from './base.js';
+import type { ToolDefinition, ToolResult, ToolContext, Logger } from '@code-agent/contracts';
+import { NullLogger } from '../logging/NullLogger.js';
 import {
   ListDirTool,
   ReadFileTool,
   SearchByRegexTool,
   WriteFileTool,
   EditFileTool,
-} from './file';
-import { RunCommandTool } from './shell';
-import { FinishTool } from './finish';
+} from './file/index.js';
+import { RunCommandTool } from './shell/index.js';
+import { FinishTool } from './finish/index.js';
 
 export class ToolManager {
   private tools = new Map<string, Tool>();
+  private readonly logger: Logger;
 
-  constructor(projectPath: string) {
+  constructor(projectPath: string, logger: Logger = new NullLogger()) {
+    this.logger = logger;
     this.registerAll(this.createBuiltinTools(projectPath));
   }
 
@@ -80,6 +83,7 @@ export class ToolManager {
     const tool = this.tools.get(toolName);
 
     if (!tool) {
+      this.logger.warn('工具未找到', { tool: toolName });
       return {
         success: false,
         content: '',
@@ -90,6 +94,7 @@ export class ToolManager {
     try {
       return await tool.execute(params, context);
     } catch (err) {
+      this.logger.error('工具执行异常', { tool: toolName, error: (err as Error).message });
       return {
         success: false,
         content: '',

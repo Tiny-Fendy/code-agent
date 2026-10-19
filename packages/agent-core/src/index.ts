@@ -43,3 +43,6 @@ export type { MockTurn, MockProviderOptions } from './llm/MockProvider.js';
 
 // 上下文
 export { ContextManager } from './context/ContextManager.js';
+
+// 日志（开发者诊断通道，与 AgentEvent 严格分离）
+export { ConsoleLogger, NullLogger } from './logging/index.js';
