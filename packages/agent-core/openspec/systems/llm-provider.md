@@ -76,12 +76,13 @@ chat() 以 AsyncGenerator\<LLMEvent\> 产出事件，最后一定以 message_com
 - [x] 协议层类型独立（openai-types.ts）
 - [x] fetch-sse-client 独立成包（libs/fetch-sse-client，API v2 定稿）
 - [x] MockProvider 与切换机制落地（§6）
-- [ ] OpenAIAccumulator 类抽离
-- [ ] Provider.chat() 改造为三层编排（删除内联 SSE 解析；mock 委托保留在编排层入口）
+- [x] OpenAIAccumulator 类抽离
+- [x] Provider.chat() 改造为三层编排（删除内联 SSE 解析；mock 委托保留在编排层入口）
 
 ## 8. 已知限制与非目标
 
-- SSE 跳过解析失败的行，仅 debug 可见（日志系统落地后）
+- 严格解析策略：畸形 data 行以 error 事件终结流（对齐 fetch-sse-client），不做静默跳过
+- 未开放 reconnect / 自定义超时配置（库默认 connect 10s / read 30s / total 0；重放语义敏感，开放前需单独评估）
 - 未实现重试、限流、token 用量统计
 - 仅支持 OpenAI 兼容流式协议（`/chat/completions` + SSE）
 - Mock 不做录制/回放、不模拟 token 用量
@@ -93,3 +94,4 @@ chat() 以 AsyncGenerator\<LLMEvent\> 产出事件，最后一定以 message_com
 | 2026-10-16 | 协议层类型独立：SSEChunk 等内联类型提取至 openai-types.ts，AccumulatedToolCall 接口抽离 | — |
 | 2026-10-17 | 三层拆分方案定稿：fetch-sse-client API v2（类 + 事件驱动）设计完成；本文档补录，填掉 systems README 中"LLM 接入—待记录"占位 | libs/fetch-sse-client API 重设计讨论 |
 | 2026-10-18 | MockProvider 落地：剧本驱动 + 双入口切换（chat() 入口委托），新增 §6 MockProvider 与已知限制小节 | mock-provider |
+| 2026-10-19 | 三层拆分落地：chat() 接入 SSEClient（push-pull 队列桥接）、OpenAIAccumulator 独立成类；畸形 data 从静默跳过改为 error 终结，新增超时能力；错误 message 统一 `[type]` 前缀 | sse-client-integration |
