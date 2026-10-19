@@ -2,6 +2,8 @@
  * 工具相关共享类型
  */
 
+import type { Logger } from './logger.js';
+
 // 工具定义（用于传给 LLM 的 schema）
 export interface ToolDefinition {
   name: string;
@@ -19,4 +21,6 @@ export interface ToolResult {
 // 工具执行上下文（宿主环境提供给工具的能力）
 export interface ToolContext {
   projectPath: string;
+  /** 可选日志器，工具内诊断信息经此输出；缺省由 ToolManager 注入 NullLogger */
+  logger?: Logger;
 }
