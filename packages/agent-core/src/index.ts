@@ -13,12 +13,12 @@
  */
 
 // Agent
-export { Agent } from './agent/Agent';
+export { Agent } from './agent/Agent.js';
 
 // 工具系统
-export { ToolManager } from './tools/ToolManager';
-export { BaseTool } from './tools/base';
-export type { Tool } from './tools/base';
+export { ToolManager } from './tools/ToolManager.js';
+export { BaseTool } from './tools/base.js';
+export type { Tool } from './tools/base.js';
 
 // 文件工具
 export {
@@ -27,15 +27,19 @@ export {
   SearchByRegexTool,
   WriteFileTool,
   EditFileTool,
-} from './tools/file';
+} from './tools/file/index.js';
 
 // Shell 工具
-export { RunCommandTool } from './tools/shell';
+export { RunCommandTool } from './tools/shell/index.js';
 
 // LLM
-export { LLMProvider, LLMEventType } from './llm/LLMProvider';
-export { OpenAICompatibleProvider } from './llm/OpenAICompatible';
-export type { ChatCompletionParams, LLMEvent } from './llm/LLMProvider';
+export { LLMProvider, LLMEventType } from './llm/LLMProvider.js';
+export { OpenAICompatibleProvider } from './llm/OpenAICompatible.js';
+export type { ChatCompletionParams, LLMEvent } from './llm/LLMProvider.js';
+
+// Mock LLM（开发态剧本驱动，见 openspec/changes/mock-provider）
+export { MockProvider, setMockProvider, clearMockProvider, mockEnabled } from './llm/MockProvider.js';
+export type { MockTurn, MockProviderOptions } from './llm/MockProvider.js';
 
 // 上下文
-export { ContextManager } from './context/ContextManager';
+export { ContextManager } from './context/ContextManager.js';

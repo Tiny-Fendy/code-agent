@@ -27,9 +27,10 @@
  *   ...arguments 是逐段拼接的 JSON 字符串
  */
 
-import { LLMProvider, LLMEventType, type ChatCompletionParams, type LLMEvent } from './LLMProvider';
+import { LLMProvider, LLMEventType, type ChatCompletionParams, type LLMEvent } from './LLMProvider.js';
+import { mockEnabled, mockStream } from './MockProvider.js';
 import type { ChatMessage, ToolCall } from '@code-agent/contracts';
-import type { OpenAIStreamChunk } from './openai-types';
+import type { OpenAIStreamChunk } from './openai-types.js';
 
 /**
  * 累积中的工具调用（实现层内部状态）
@@ -52,6 +53,13 @@ export class OpenAICompatibleProvider extends LLMProvider {
   }
 
   async *chat(params: ChatCompletionParams): AsyncGenerator<LLMEvent> {
+    // mock 开关：开发态剧本驱动（详见 openspec/changes/mock-provider/design.md），
+    // 切换点收在 LLM 层内部，Agent 与调用方零感知
+    if (mockEnabled()) {
+      yield* mockStream(params);
+      return;
+    }
+
     const url = `${this.baseUrl.replace(/\/$/, '')}/chat/completions`;
 
     const body: Record<string, any> = {
