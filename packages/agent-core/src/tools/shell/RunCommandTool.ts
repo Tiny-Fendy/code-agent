@@ -13,9 +13,9 @@
  */
 
 import { spawn } from 'node:child_process';
-import { BaseTool } from '../base';
+import { BaseTool } from '../base.js';
 import type { ToolResult, ToolContext } from '@code-agent/contracts';
-import { PathGuard, PathGuardError } from '../support/PathGuard';
+import { PathGuard, PathGuardError } from '../support/PathGuard.js';
 
 /** 输出上限（字符数），超出部分丢弃并提示 */
 const MAX_OUTPUT_CHARS = 10_000;

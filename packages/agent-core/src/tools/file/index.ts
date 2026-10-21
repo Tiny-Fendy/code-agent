@@ -2,8 +2,8 @@
  * 文件工具集统一导出
  */
 
-export { ListDirTool } from './ListDirTool';
-export { ReadFileTool } from './ReadFileTool';
-export { SearchByRegexTool } from './SearchByRegexTool';
-export { WriteFileTool } from './WriteFileTool';
-export { EditFileTool } from './EditFileTool';
+export { ListDirTool } from './ListDirTool.js';
+export { ReadFileTool } from './ReadFileTool.js';
+export { SearchByRegexTool } from './SearchByRegexTool.js';
+export { WriteFileTool } from './WriteFileTool.js';
+export { EditFileTool } from './EditFileTool.js';

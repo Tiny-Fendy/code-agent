@@ -10,10 +10,10 @@
  * - requiresConfirmation=true：文件编辑是高危操作，必须用户确认。
  */
 
-import { BaseTool } from '../base';
+import { BaseTool } from '../base.js';
 import type { ToolResult, ToolContext } from '@code-agent/contracts';
-import { PathGuard, PathGuardError } from '../support/PathGuard';
-import { FsService } from '../support/FsService';
+import { PathGuard, PathGuardError } from '../support/PathGuard.js';
+import { FsService } from '../support/FsService.js';
 
 export class EditFileTool extends BaseTool {
   name = 'edit_file';

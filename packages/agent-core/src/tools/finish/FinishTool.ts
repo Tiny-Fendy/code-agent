@@ -1,4 +1,4 @@
-import { BaseTool } from '../base';
+import { BaseTool } from '../base.js';
 import type { ToolResult, ToolContext } from '@code-agent/contracts';
 
 /**

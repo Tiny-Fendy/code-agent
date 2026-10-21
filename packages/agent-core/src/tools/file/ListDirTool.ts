@@ -5,11 +5,11 @@
  * 避免 node_modules 等噪音目录撑爆上下文。
  */
 
-import { BaseTool } from '../base';
+import { BaseTool } from '../base.js';
 import type { ToolResult, ToolContext } from '@code-agent/contracts';
-import { PathGuard, PathGuardError } from '../support/PathGuard';
-import { FsService, FILE_CONFIG, type DirEntry } from '../support/FsService';
-import { GitIgnoreFilter } from '../support/GitIgnoreFilter';
+import { PathGuard, PathGuardError } from '../support/PathGuard.js';
+import { FsService, FILE_CONFIG, type DirEntry } from '../support/FsService.js';
+import { GitIgnoreFilter } from '../support/GitIgnoreFilter.js';
 
 export class ListDirTool extends BaseTool {
   name = 'list_dir';

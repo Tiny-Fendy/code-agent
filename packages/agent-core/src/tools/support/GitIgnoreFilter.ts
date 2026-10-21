@@ -7,7 +7,11 @@
 
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
-import ignore from 'ignore';
+import ignoreModule from 'ignore';
+
+// NodeNext 建模差异：ignore 是 CJS 包且 d.ts 使用 export default，
+// 默认导入被建模为模块命名空间；运行时 module.exports.default 即工厂函数本身
+const ignore = ignoreModule.default;
 
 export class GitIgnoreFilter {
   private ig: ReturnType<typeof ignore>;

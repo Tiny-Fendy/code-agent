@@ -1,1 +1,1 @@
-export { FinishTool } from './FinishTool';
+export { FinishTool } from './FinishTool.js';

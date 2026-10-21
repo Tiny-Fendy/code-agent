@@ -4,6 +4,8 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "composite": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "lib": ["ES2022", "DOM"],
     "types": ["node"],
     "paths": {

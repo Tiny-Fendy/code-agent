@@ -8,10 +8,10 @@
  * 安全设计：自动创建父目录（mkdir -p），但仍需 PathGuard 校验不逃逸出项目。
  */
 
-import { BaseTool } from '../base';
+import { BaseTool } from '../base.js';
 import type { ToolResult, ToolContext } from '@code-agent/contracts';
-import { PathGuard, PathGuardError } from '../support/PathGuard';
-import { FsService } from '../support/FsService';
+import { PathGuard, PathGuardError } from '../support/PathGuard.js';
+import { FsService } from '../support/FsService.js';
 
 export class WriteFileTool extends BaseTool {
   name = 'write_file';

@@ -7,10 +7,10 @@
  * - 返回结果带行号，方便后续 edit_file 定位
  */
 
-import { BaseTool } from '../base';
+import { BaseTool } from '../base.js';
 import type { ToolResult, ToolContext } from '@code-agent/contracts';
-import { PathGuard, PathGuardError } from '../support/PathGuard';
-import { FsService, FILE_CONFIG } from '../support/FsService';
+import { PathGuard, PathGuardError } from '../support/PathGuard.js';
+import { FsService, FILE_CONFIG } from '../support/FsService.js';
 
 export class ReadFileTool extends BaseTool {
   name = 'read_file';

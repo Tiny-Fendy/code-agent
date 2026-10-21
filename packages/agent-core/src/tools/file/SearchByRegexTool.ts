@@ -9,10 +9,10 @@
  * - 超过 max_results 时尾部提示截断，防止回灌内容撑爆上下文
  */
 
-import { BaseTool } from '../base';
+import { BaseTool } from '../base.js';
 import type { ToolResult, ToolContext } from '@code-agent/contracts';
-import { PathGuard, PathGuardError } from '../support/PathGuard';
-import { FsService, FILE_CONFIG } from '../support/FsService';
+import { PathGuard, PathGuardError } from '../support/PathGuard.js';
+import { FsService, FILE_CONFIG } from '../support/FsService.js';
 
 export class SearchByRegexTool extends BaseTool {
   name = 'search_by_regex';
