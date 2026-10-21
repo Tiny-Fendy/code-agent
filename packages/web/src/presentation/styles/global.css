@@ -1,0 +1,77 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: #f5f5f5;
+  color: rgba(0, 0, 0, 0.88);
+}
+
+/* ---- 应用三栏骨架 ---- */
+
+/* 整体占满视口；min-height: 0 让 flex 子项可收缩，内部滚动容器才能生效 */
+.app-layout {
+  height: 100%;
+}
+
+.app-body {
+  min-height: 0;
+}
+
+.app-sider {
+  border-right: 1px solid #f0f0f0;
+}
+
+.app-content {
+  min-width: 0;
+}
+
+/* ---- 顶栏 ---- */
+
+.top-bar {
+  height: 48px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fff;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+/* ---- 文件树面板 ---- */
+
+.file-tree-panel {
+  height: 100%;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+}
+
+/* ---- 对话区 ---- */
+
+.chat-area {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+}
+
+.chat-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

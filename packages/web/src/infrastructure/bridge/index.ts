@@ -13,10 +13,12 @@ import type { MainServices } from '@code-agent/contracts';
 import { createRpcClient, type RpcClient, type StreamMethodsOf } from '@code-agent/rpc/renderer';
 import { createMockTransport } from './mock';
 
-const transport =
-  typeof window !== 'undefined' && window.transport
-    ? window.transport
-    : createMockTransport();
+/** 是否运行在 mock 模式（纯浏览器调试）：顶栏环境标签等 UI 需要感知 */
+export const IS_MOCK = !(typeof window !== 'undefined' && window.transport);
+
+const transport = IS_MOCK
+  ? createMockTransport()
+  : window.transport!;
 
 // 流式方法运行时清单：契约里返回 RpcStream 的方法需要同步返回句柄。
 // satisfies 对照契约类型推导：契约新增流式方法而清单漏登记时，编译报错。
