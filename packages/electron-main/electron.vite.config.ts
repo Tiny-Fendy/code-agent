@@ -33,6 +33,10 @@ export default defineConfig({
   },
   renderer: {
     root: resolve(__dirname, '../web'),
+    resolve: {
+      // 与 web 包 vite.config.ts / tsconfig paths 保持一致（electron-vite renderer 不继承 web 包配置）
+      alias: { '@': resolve(__dirname, '../web/src') },
+    },
     build: {
       outDir: resolve(__dirname, 'dist/renderer'),
       rollupOptions: {

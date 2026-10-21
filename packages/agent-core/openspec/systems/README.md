@@ -18,7 +18,7 @@
 - [Agent 引擎（ReAct 循环）](./agent-engine.md)
 - [上下文管理（ContextManager）](./context-management.md)
 - [工具系统（ToolManager、工具生命周期）](./tool-system.md)
-- LLM 接入（Provider 抽象与 OpenAICompatible 实现）— 待记录
+- [LLM 接入（Provider 抽象与三层拆分）](./llm-provider.md)
 
 ## 更新时机
 
