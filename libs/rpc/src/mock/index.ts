@@ -26,12 +26,32 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * aborted 终局不通过脚本表达，由框架在取消时自发。
  */
 export interface MockStreamScript<E extends StreamEvent = StreamEvent, R = unknown> {
-  /** 按序推送的业务事件 */
-  events: E[];
+  /** 按序推送的业务事件（可插入闸门项，见 MockStreamGate） */
+  events: Array<E | MockStreamGate>;
   /** 事件推送间隔（ms），缺省不等待 */
   intervalMs?: number;
   /** 全部事件推完后的终局 */
   end: { status: 'completed'; result: R } | { status: 'failed'; error: RpcErrorInfo };
+}
+
+/**
+ * 流中闸门（脚本项）：泵送遇到它时等待 promise settle 后继续推后续事件。
+ * 用于模拟「等外部交互再继续」的业务时序（如工具确认流：confirm 决策后事件才继续）。
+ *
+ * 注意：若外部 promise 永不 settle（如用户取消后再无人决策），
+ * 泵送协程会一直挂起——无副作用，只是不会推任何帧。
+ */
+export interface MockStreamGate {
+  gate: PromiseLike<unknown>;
+}
+
+/** 构造一个闸门脚本项 */
+export function mockGate(promise: PromiseLike<unknown>): MockStreamGate {
+  return { gate: promise };
+}
+
+function isGate(item: MockStreamGate | unknown): item is MockStreamGate {
+  return typeof item === 'object' && item !== null && 'gate' in item;
 }
 
 export interface MockTransportHandlers {
@@ -55,10 +75,16 @@ export function createMockTransport(handlers: MockTransportHandlers): Transport 
 
   const pump = (streamId: string, script: MockStreamScript) => {
     void (async () => {
-      for (const event of script.events) {
+      for (const item of script.events) {
+        // 闸门：等待外部信号（如确认决策）后再继续；settle 后若已取消则直接退出
+        if (isGate(item)) {
+          await item.gate;
+          if (aborted.get(streamId)) return;
+          continue;
+        }
         if (script.intervalMs) await delay(script.intervalMs);
         if (aborted.get(streamId)) return; // 取消后停止泵送
-        emit({ streamId, kind: 'next', value: event });
+        emit({ streamId, kind: 'next', value: item });
       }
       if (aborted.get(streamId)) return;
       emit({ streamId, kind: 'end', value: script.end });
