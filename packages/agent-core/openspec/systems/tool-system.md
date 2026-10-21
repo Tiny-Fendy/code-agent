@@ -55,6 +55,7 @@ Agent：把 ToolResult 以 role='tool' 消息回灌上下文
 | edit_file | 精确替换编辑 | 否 |
 | run_command | Shell 命令执行 | **是** |
 | finish | 任务完成时显式结束循环 | 否 |
+| ask_user | 请求用户选择或输入（经宿主回调） | 否 |
 
 ## 6. 关键设计决策
 
@@ -66,6 +67,7 @@ Agent：把 ToolResult 以 role='tool' 消息回灌上下文
 | 命令非零退出码作为正常结果返回 | 退出码与输出是 LLM 需要的"观察"，标记为 error 语义不当 |
 | Shell 输出上限 + 超时强杀 | 防止单次回灌撑爆上下文（配合 ContextManager 入口截断双保险）、防止命令挂死 |
 | 所有文件工具经 PathGuard | 统一安全边界，路径逃逸在工具入口即被拦截 |
+| 用户交互能力放 ToolContext，不经 ToolManager | 调度层不承载宿主交互语义；自定义工具注入后同样可用；未注入时工具自行降级为错误观察 |
 
 ## 7. 已知限制与非目标
 
@@ -73,6 +75,7 @@ Agent：把 ToolResult 以 role='tool' 消息回灌上下文
 - run_command 暂无常驻/后台进程支持（dev server 类命令），后续迭代
 - 无工具权限分级、无 per-project 工具开关
 - 自定义工具注入入口已就绪，但尚无真实使用场景验证
+- ask_user 的超时与取消由宿主回调负责；回调不返回时工具调用会保持挂起（与确认流相同）
 
 ## 8. 变更记录
 
@@ -81,3 +84,4 @@ Agent：把 ToolResult 以 role='tool' 消息回灌上下文
 | 2026-10-14 | 初版补录：接入标准、组装与调度流程、6 个内置工具、关键设计决策（均已落地） | `openspec/file-tools/`、本会话 shell 工具与组装点重构 |
 | 2026-10-14 | PathGuard 修复：项目根在构造时归一化（realpathSync），修复符号链接形式的根路径（如 macOS /var/folders）下全部合法访问被误判为"符号链接指向项目外"的问题；新增工具层单测 `test/tools.test.ts`（29 项） | — |
 | 2026-10-16 | finish 工具落地：第 7 个内置工具，LLM 显式调用结束任务循环；`@/` 别名配置统一测试导入路径 | `changes/finish-tool/` |
+| 2026-10-21 | ask_user 工具落地：第 8 个内置工具，经 `ToolContext.requestUserInput` 向宿主请求用户选择/输入；支持单选、多选、自由文本；未接入能力时降级为错误观察 | `changes/ask-user-tool/` |

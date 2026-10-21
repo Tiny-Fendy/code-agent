@@ -57,7 +57,15 @@ Agent 是整个引擎的编排中枢，实现 ReAct（Reasoning + Acting）循�
 - 拒绝时不执行工具，但**仍回灌一条 tool 消息**（Function Calling 协议要求每个 tool_call 都有响应），LLM 据此自行调整
 - 未注入回调 → 自动放行（CLI / 自动化场景），不产生 confirm 事件
 
-### 3.5 上下文压缩编排
+### 3.5 用户输入流（ask_user）
+
+- `ask_user` 是标准内置工具（`requiresConfirmation=false`），Agent 不做工具名特判
+- 工具从 `ToolContext.requestUserInput` 取宿主回调（由 `AgentOptions.onAskUser` 在构造时注入），`ToolManager` 不感知
+- 用户回答映射为 ToolResult 回灌，LLM 继续下一轮；未注入回调 / 回调异常 / 空回答均降级为错误观察，不挂起
+- **不新增 AgentEvent**：请求随 `tool_call_start.arguments` 留痕，回答随 `tool_call_result` 留痕；交互弹层由宿主回调驱动
+- 超时与取消由宿主回调负责，与确认流一致（等待期间 `abort()` 无法中断已 await 的回调）
+
+### 3.6 上下文压缩编排
 
 每轮循环开头检查阈值；触发时把摘要区序列化为对话记录文本，交给 LLM 生成五段式结构化摘要（目标/进展/文件/决策/待办），应用后 yield `context_compact`。摘要请求**不携带 tools 定义**，防止压缩轮再次触发工具调用。详见上下文管理文档。
 
