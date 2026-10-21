@@ -16,6 +16,9 @@ import {
 } from '@code-agent/contracts';
 
 export class ConfigServiceImpl implements ConfigService {
+  /** 服务注册名（契约 ServiceDef 显式声明，Router.registerAll 读取） */
+  readonly serviceName = 'config' as const;
+
   private readonly filePath: string;
   private cache: AppConfig = structuredClone(DEFAULT_CONFIG);
 

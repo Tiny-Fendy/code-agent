@@ -241,27 +241,11 @@ async function pump<E extends StreamEvent, R>(state: StreamState<E, R>): Promise
   }
 }
 
-// ---- 注册收口（D12a） ----
-
-const SERVICE_IMPL_SUFFIX = 'ServiceImpl';
-
-/**
- * 实现类名 → 契约键：`ChatServiceImpl` → `chat`。
- * 无 ServiceImpl 后缀时退化为首字母小写。
- */
-export function serviceNameOf(className: string): string {
-  const stripped = className.endsWith(SERVICE_IMPL_SUFFIX)
-    ? className.slice(0, -SERVICE_IMPL_SUFFIX.length)
-    : className;
-  if (stripped.length === 0) return stripped;
-  return stripped.charAt(0).toLowerCase() + stripped.slice(1);
-}
-
 // ---- Router ----
 
 export interface RpcRouterOptions<K extends string> {
   /**
-   * 契约键白名单（D12a 运行时保险）：registerAll 推导出的名字不在其中即 fail fast。
+   * 契约键白名单（D12a 运行时保险）：registerAll 读取的 serviceName 不在其中即 fail fast。
    * 传字面量数组以获得编译期校验：(keyof MainServices)[]。
    */
   serviceKeys?: ReadonlyArray<K>;
@@ -291,15 +275,21 @@ export class RpcRouter<
   }
 
   /**
-   * 组装根统一入口（D12a）：传入实现实例数组，注册名由类名机械推导，零手写字符串。
-   * 推导名不在 serviceKeys 白名单内时同步 throw（fail fast）。
+   * 组装根统一入口（D12a）：传入实现实例数组，注册名读取实例的 serviceName 字段
+   * （契约接口 ServiceDef 显式声明，编译期与 MainServices 键对齐）。
+   * 实例缺 serviceName 或不在 serviceKeys 白名单内时同步 throw（fail fast）。
    */
   registerAll(instances: ReadonlyArray<TServices[keyof TServices]>): void {
     for (const instance of instances) {
-      const name = serviceNameOf((instance as object).constructor.name);
+      const name = (instance as { serviceName?: unknown }).serviceName;
+      if (typeof name !== 'string' || name.length === 0) {
+        throw new Error(
+          `registerAll：实例 "${(instance as object).constructor.name}" 缺少 serviceName 字段（需实现契约的 ServiceDef）`,
+        );
+      }
       if (this.serviceKeys.size > 0 && !this.serviceKeys.has(name)) {
         throw new Error(
-          `registerAll：类 "${(instance as object).constructor.name}" 推导出的服务名 "${name}" 不在契约键白名单中`,
+          `registerAll：服务名 "${name}" 不在契约键白名单中`,
         );
       }
       this.services.set(name, instance as Record<string, unknown>);

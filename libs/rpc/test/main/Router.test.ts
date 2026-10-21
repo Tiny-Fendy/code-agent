@@ -7,7 +7,7 @@
  * - Unary 信封 / 新错误码
  * - 推模式 Sink（形态 A）与拉模式 generator（形态 B）
  * - 终局状态机：唯一 end 帧、first-wins、终局后丢弃、取消幂等
- * - 注册收口 serviceNameOf / registerAll 白名单
+ * - 注册收口 registerAll（读取 serviceName 字段）与白名单
  */
 
 import { test } from 'node:test';
@@ -17,7 +17,6 @@ import type { StreamEnd, StreamEvent, StreamFrame } from '../../src/protocol';
 import {
   RpcRouter,
   createRpcStream,
-  serviceNameOf,
   type ServerRpcStream,
   type StreamEmitter,
 } from '../../src/main/Router';
@@ -438,16 +437,11 @@ test('多次调用产生不同 streamId', async () => {
 
 // ============ 注册收口 ============
 
-test('serviceNameOf：<Key>ServiceImpl → 契约键', () => {
-  assert.equal(serviceNameOf('ChatServiceImpl'), 'chat');
-  assert.equal(serviceNameOf('ConfigServiceImpl'), 'config');
-  assert.equal(serviceNameOf('FileServiceImpl'), 'file');
-});
-
-test('registerAll：按类名推导注册，服务可分发', async () => {
+test('registerAll：读取 serviceName 字段注册，服务可分发', async () => {
   const router = new RpcRouter({ serviceKeys: ['demo'] });
 
   class DemoServiceImpl {
+    readonly serviceName = 'demo' as const;
     ping() {
       return 'pong';
     }
@@ -459,10 +453,22 @@ test('registerAll：按类名推导注册，服务可分发', async () => {
   assert.deepEqual(res, { ok: true, data: 'pong' });
 });
 
-test('registerAll：推导名不在白名单 → 同步 throw（fail fast）', () => {
+test('registerAll：实例缺少 serviceName 字段 → 同步 throw（fail fast）', () => {
+  const router = new RpcRouter();
+
+  class NoNameService {
+    x() {
+      return 1;
+    }
+  }
+  assert.throws(() => router.registerAll([new NoNameService()]), /缺少 serviceName/);
+});
+
+test('registerAll：serviceName 不在白名单 → 同步 throw（fail fast）', () => {
   const router = new RpcRouter({ serviceKeys: ['demo'] });
 
   class UnknownServiceImpl {
+    readonly serviceName = 'unknown' as const;
     x() {
       return 1;
     }
@@ -473,6 +479,7 @@ test('registerAll：推导名不在白名单 → 同步 throw（fail fast）', (
 test('registerAll：无白名单时不做运行时拦截（机制库中立用法）', async () => {
   const router = new RpcRouter();
   class FooServiceImpl {
+    readonly serviceName = 'foo' as const;
     x() {
       return 1;
     }

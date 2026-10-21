@@ -43,7 +43,7 @@
 | 子路径 | 内容 | electron 依赖 |
 | --- | --- | --- |
 | `@code-agent/rpc/protocol` | 通道常量、信封、帧、StreamEnd、RpcErrorInfo、Sink/Handle 类型 | 无 |
-| `@code-agent/rpc/main` | RpcRouter、createRpcStream、serviceNameOf、bindIpc | peerDependency（optional） |
+| `@code-agent/rpc/main` | RpcRouter、createRpcStream、bindIpc | peerDependency（optional） |
 | `@code-agent/rpc/preload` | `exposeRpcTransport()`：contextBridge 暴露哑管道 | peerDependency（optional） |
 | `@code-agent/rpc/renderer` | createRpcClient 双层 Proxy、RpcStreamImpl 消费端句柄 | 无 |
 | `@code-agent/rpc/mock` | 通用 mock Transport 框架（脚本化场景注入） | 无 |
@@ -220,10 +220,11 @@ type StreamFrame<E, R> =
 Router 提供两层注册 API：
 
 - `registerService<K extends keyof TServices>(name: K, service: TServices[K])`：泛型绑定契约，名与实现编译期对齐
-- `registerAll(instances)`：数组注册，按 `serviceNameOf` 推导注册名——
-  约定实现类命名为 `<Pascal(契约键)>ServiceImpl`，推导规则为 `constructor.name` 去 `ServiceImpl` 后缀、首字母小写；
-  配合构造参数 `serviceKeys` 白名单，推导结果不在白名单即启动 throw（fail fast）
-- 风险：`constructor.name` 依赖类名不被改写；宿主构建若开启压缩改名，需配置保留类名或回退到显式命名注册
+- `registerAll(instances)`：数组注册，注册名读取实例的 `serviceName` 字段——
+  该字段由契约侧 `ServiceDef<N>` 接口显式声明（如 `ConfigService extends ServiceDef<'config'>`），
+  实现类 `implements` 契约时被字面量类型强制提供；实例缺字段或结果不在构造参数
+  `serviceKeys` 白名单内即启动 throw（fail fast）。
+  服务名的单源事实是契约接口，不依赖类名约定，构建压缩改名无影响
 
 ## 12. 已知限制与非目标
 
@@ -239,3 +240,6 @@ Router 提供两层注册 API：
 
 - 2026-10：文档自 `packages/electron-main/openspec/systems/rpc-communication.md` 迁入，
   机制内容与应用组装视图分离；终局状态机、演进路径等细节自 `changes/rpc-communication-v2/design.md` 提炼补全。
+- 2026-10-18：服务注册名来源由类名推导（`serviceNameOf`）改为契约接口显式声明——
+  契约侧新增 `ServiceDef<N>`（`serviceName` 字面量字段）与 `MainServices` 键一致性编译期校验，
+  Router 删除 `serviceNameOf`，`registerAll` 直接读实例字段；客户端 RpcClient 类型映射排除该元字段。

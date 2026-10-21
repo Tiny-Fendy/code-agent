@@ -13,6 +13,28 @@ import type { AgentEvent, SendResult } from '../types/agent.js';
 import type { AppConfig, FileNode } from '../types/ipc.js';
 import type { RpcStream } from '@code-agent/rpc/protocol';
 
+// ---- 服务元定义 ----
+
+/**
+ * 服务定义基础接口：每个服务契约显式声明自己的注册名（单源事实）。
+ *
+ * - 编译期：字面量类型强制实现类与 MainServices 键对齐，写错即编译报错
+ * - 运行时：Router.registerAll 直接读取该字段完成注册，不再从类名推导
+ * - 客户端：RpcClient 类型映射已排除该字段，不出现在调用面
+ */
+export interface ServiceDef<N extends string> {
+  readonly serviceName: N;
+}
+
+/** 服务名一致性检查：键 ≠ serviceName 时该键映射为含具体名称的错误提示字面量 */
+export type ServiceNameMismatch<S> = {
+  [K in keyof S & string]: S[K] extends { readonly serviceName: infer N }
+    ? N extends K
+      ? never
+      : `键 "${K}" 与 serviceName "${N & string}" 不一致`
+    : `服务 "${K}" 缺少 serviceName 字段`;
+};
+
 // ---- 契约数据类型 ----
 
 /** 连接测试结果 */
@@ -23,13 +45,13 @@ export interface TestConnResult {
 
 // ---- 服务契约 ----
 
-export interface ConfigService {
+export interface ConfigService extends ServiceDef<'config'> {
   get(): Promise<AppConfig>;
   set(config: AppConfig): Promise<void>;
   testConnection(): Promise<TestConnResult>;
 }
 
-export interface ChatService {
+export interface ChatService extends ServiceDef<'chat'> {
   /**
    * 发送消息，返回 Agent 事件流句柄（流式方法）。
    * 事件流只含过程数据；终局结果 SendResult 穷尽四个退出点，
@@ -40,7 +62,7 @@ export interface ChatService {
   confirmTool(toolCallId: string, ok: boolean): Promise<void>;
 }
 
-export interface FileService {
+export interface FileService extends ServiceDef<'file'> {
   openFolderDialog(): Promise<string | null>;
   getFileTree(projectPath: string): Promise<FileNode[]>;
   readFile(filePath: string): Promise<string>;
@@ -52,3 +74,11 @@ export interface MainServices {
   chat: ChatService;
   file: FileService;
 }
+
+// 编译期断言：MainServices 键必须与各服务 serviceName 字面量一致。
+// 出现漂移时本行报错（错误提示字面量联合无法赋给 true），提示中含具体键名。
+type ServiceNameCheck = ServiceNameMismatch<MainServices>[keyof MainServices & string] extends never
+  ? true
+  : never;
+const _assertServiceNames: ServiceNameCheck = true;
+void _assertServiceNames;

@@ -81,8 +81,9 @@ Phase 1 已完成：机制抽离为独立包 `@code-agent/rpc`，契约包 `shar
 
 1. `new RpcRouter<MainServices>({ serviceKeys: SERVICE_KEYS })`（契约键白名单）
 2. `registerServices(router, app.getPath('userData'))`：构造 `ConfigServiceImpl`（先 `load()` 预载配置缓存）/ `ChatServiceImpl` / `FileServiceImpl`，共享 `WorkspaceState`（当前项目路径）；
-   `router.registerAll([...])` 数组注册——按类名约定 `<Key>ServiceImpl` 推导契约键（机制见 rpc 包文档 §11），
-   推导结果不在白名单即启动 throw；新增服务只写实现类并塞进数组
+   `router.registerAll([...])` 数组注册——各实现类的 `serviceName` 字段即注册名，
+   由契约接口 `ServiceDef<'config'>` 等显式声明并编译期对齐 `MainServices` 键（机制见 rpc 包文档 §11），
+   缺字段或不在白名单即启动 throw；新增服务只写实现类并塞进数组
 3. `bindIpc(router)`：注册 `ipcMain.handle`
 
 依赖装配采用 Composition Root：整个主进程只有启动组装函数一个地方允许 `new` 服务，

@@ -17,6 +17,9 @@ const IGNORE_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', '
 const MAX_DEPTH = 6;
 
 export class FileServiceImpl implements FileService {
+  /** 服务注册名（契约 ServiceDef 显式声明，Router.registerAll 读取） */
+  readonly serviceName = 'file' as const;
+
   constructor(private readonly workspace: WorkspaceState) {}
 
   async openFolderDialog(): Promise<string | null> {

@@ -27,17 +27,21 @@ export type StreamMethodsOf<Services> = {
   };
 };
 
+/** 契约元字段（ServiceDef）：客户端调用面排除，防止被当作方法"调用" */
+type ServiceMetaKey = 'serviceName';
+
 /**
  * 消费端视图：把契约中的 RpcStream 订阅面升级为带 abort / signal 的句柄，
- * 其余方法签名原样保留。
+ * 其余方法签名原样保留；serviceName 元字段不进入调用面。
  */
 export type RpcClient<Services> = {
   [S in keyof Services]: {
-    [M in keyof Services[S]]: Services[S][M] extends (...args: infer Args) => infer Ret
-      ? Ret extends RpcStream<infer E, infer R>
-        ? (...args: Args) => RpcStreamHandle<E, R>
-        : Services[S][M]
-      : Services[S][M];
+    [M in keyof Services[S] as M extends ServiceMetaKey ? never : M]:
+      Services[S][M] extends (...args: infer Args) => infer Ret
+        ? Ret extends RpcStream<infer E, infer R>
+          ? (...args: Args) => RpcStreamHandle<E, R>
+          : Services[S][M]
+        : Services[S][M];
   };
 };
 
