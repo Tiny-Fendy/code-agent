@@ -10,17 +10,19 @@
  * 通过替换私有 llm 字段注入假 Provider，不触碰真实网络与文件系统。
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { Agent } from '../../src/agent/Agent';
 import { LLMProvider, type ChatCompletionParams, type LLMEvent } from '../../src/llm/LLMProvider';
-import type { AgentEvent, ChatMessage, SendResult } from '@code-agent/contracts';
+import type { AgentEvent, ChatMessage, SendResult, UserInputCallback } from '@code-agent/contracts';
 
-/** 假 LLM：每次 chat 调用都按脚本重新生成事件 */
+/** 假 LLM：每次 chat 调用都按脚本重新生成事件，并记录请求参数 */
 class FakeProvider extends LLMProvider {
+  readonly calls: ChatCompletionParams[] = [];
   constructor(private readonly script: () => AsyncGenerator<LLMEvent>) {
     super('fake-key', 'http://fake');
   }
-  chat(_params: ChatCompletionParams): AsyncGenerator<LLMEvent> {
+  chat(params: ChatCompletionParams): AsyncGenerator<LLMEvent> {
+    this.calls.push(params);
     return this.script();
   }
 }
@@ -68,6 +70,23 @@ function createAgentWithLogger(
   );
   (agent as unknown as { llm: LLMProvider }).llm = new FakeProvider(script);
   return { agent, logger };
+}
+
+/** 带 onAskUser 注入的 createAgent，返回 provider 以断言回灌消息 */
+function createAgentWithAsk(
+  script: () => AsyncGenerator<LLMEvent>,
+  onAskUser: UserInputCallback,
+  maxSteps = 10,
+): { agent: Agent; logger: FakeLogger; provider: FakeProvider } {
+  const logger = new FakeLogger();
+  const provider = new FakeProvider(script);
+  const agent = new Agent(
+    { apiKey: 'fake', baseUrl: 'http://fake', model: 'fake', maxSteps },
+    process.cwd(),
+    { logger, onAskUser },
+  );
+  (agent as unknown as { llm: LLMProvider }).llm = provider;
+  return { agent, logger, provider };
 }
 
 /** 手动迭代收集事件与生成器返回值（for-await 会丢弃 return 值） */
@@ -294,5 +313,104 @@ describe('Agent.run 日志埋点（FakeLogger 注入）', () => {
     const debugs = logger.messages('debug');
     expect(debugs).toContain('LLM 请求原文');
     expect(debugs).toContain('LLM 响应原文');
+  });
+});
+
+describe('Agent.run ask_user 交互', () => {
+  /** 第一轮询问用户，第二轮自然结束 */
+  const askThenComplete = (): (() => AsyncGenerator<LLMEvent>) => {
+    let callCount = 0;
+    return async function* () {
+      callCount++;
+      if (callCount === 1) {
+        yield {
+          type: 'message_complete',
+          data: {
+            message: {
+              role: 'assistant',
+              content: '',
+              toolCalls: [
+                {
+                  id: 'tc-ask',
+                  name: 'ask_user',
+                  arguments: {
+                    question: '选择哪个方案？',
+                    options: [{ label: '方案 A' }, { label: '方案 B', description: '更稳妥' }],
+                  },
+                },
+              ],
+            },
+          },
+        };
+      } else {
+        yield { type: 'message_complete', data: { message: textMessage('按方案 A 执行') } };
+      }
+    };
+  };
+
+  it('注入 onAskUser：回答作为 tool 消息回灌并继续下一轮', async () => {
+    const onAskUser = vi.fn<UserInputCallback>(async () => ({ selected: ['方案 A'] }));
+    const { agent, provider } = createAgentWithAsk(askThenComplete(), onAskUser);
+
+    const { events, result } = await collect(agent.run('开始'));
+
+    expect(result).toEqual({ status: 'completed', steps: 2 });
+    expect(onAskUser).toHaveBeenCalledTimes(1);
+    expect(onAskUser.mock.calls[0][0]).toEqual({
+      question: '选择哪个方案？',
+      options: [{ label: '方案 A' }, { label: '方案 B', description: '更稳妥' }],
+      allowMultiple: false,
+    });
+
+    // 事件流：tool_call_start → tool_call_result，无新增事件类型
+    const toolEventTypes = events
+      .filter((e) => e.type === 'tool_call_start' || e.type === 'tool_call_result')
+      .map((e) => e.type);
+    expect(toolEventTypes).toEqual(['tool_call_start', 'tool_call_result']);
+    const toolResults = events.filter((e) => e.type === 'tool_call_result');
+    expect(toolResults[0].data.result).toEqual({ success: true, content: '用户选择：方案 A' });
+
+    // 回灌断言：第二轮请求的最后一条消息是 tool 角色，内容为回答
+    expect(provider.calls).toHaveLength(2);
+    const secondMessages = provider.calls[1].messages;
+    const lastMessage = secondMessages[secondMessages.length - 1];
+    expect(lastMessage.role).toBe('tool');
+    expect(lastMessage.content).toBe('用户选择：方案 A');
+    expect(lastMessage.toolCallId).toBe('tc-ask');
+  });
+
+  it('未注入 onAskUser：返回错误观察，Agent 循环继续', async () => {
+    const provider = new FakeProvider(askThenComplete());
+    const agent = new Agent(
+      { apiKey: 'fake', baseUrl: 'http://fake', model: 'fake', maxSteps: 10 },
+      process.cwd(),
+    );
+    (agent as unknown as { llm: LLMProvider }).llm = provider;
+
+    const { events, result } = await collect(agent.run('开始'));
+
+    expect(result).toEqual({ status: 'completed', steps: 2 });
+    const toolResults = events.filter((e) => e.type === 'tool_call_result');
+    expect(toolResults[0].data.result.success).toBe(false);
+    expect(toolResults[0].data.result.error).toContain('不支持用户交互');
+
+    const secondMessages = provider.calls[1].messages;
+    const lastMessage = secondMessages[secondMessages.length - 1];
+    expect(lastMessage.role).toBe('tool');
+    expect(lastMessage.content).toContain('Error: 当前环境不支持用户交互');
+  });
+
+  it('回调抛异常：返回错误观察，不中断 Agent', async () => {
+    const onAskUser = vi.fn<UserInputCallback>(async () => {
+      throw new Error('UI 已关闭');
+    });
+    const { agent, provider } = createAgentWithAsk(askThenComplete(), onAskUser);
+
+    const { result } = await collect(agent.run('开始'));
+
+    expect(result).toEqual({ status: 'completed', steps: 2 });
+    const secondMessages = provider.calls[1].messages;
+    const lastMessage = secondMessages[secondMessages.length - 1];
+    expect(lastMessage.content).toContain('用户交互失败: UI 已关闭');
   });
 });

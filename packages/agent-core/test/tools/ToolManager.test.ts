@@ -24,12 +24,12 @@ describe('ToolManager', () => {
     rmSync(sandbox, { recursive: true, force: true });
   });
 
-  it('构造时自动注册 7 个内置工具', () => {
+  it('构造时自动注册 8 个内置工具', () => {
     const defs = tm.getDefinitions();
-    expect(defs).toHaveLength(7);
+    expect(defs).toHaveLength(8);
     const names = defs.map((d) => d.name);
     expect(names).toEqual(
-      expect.arrayContaining(['list_dir', 'read_file', 'search_by_regex', 'write_file', 'edit_file', 'run_command', 'finish']),
+      expect.arrayContaining(['list_dir', 'read_file', 'search_by_regex', 'write_file', 'edit_file', 'run_command', 'finish', 'ask_user']),
     );
   });
 
@@ -65,6 +65,6 @@ describe('ToolManager', () => {
     const bombResult = await tm.execute('bomb', {}, ctx);
     expect(bombResult.success).toBe(false);
     expect(bombResult.error).toContain('boom');
-    expect(tm.getDefinitions()).toHaveLength(8);
+    expect(tm.getDefinitions()).toHaveLength(9);
   });
 });
