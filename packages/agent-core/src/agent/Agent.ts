@@ -67,6 +67,11 @@ finish 工具的使用：
 - finish 的 summary 应包含：完成了什么、关键变更、遗留问题（如有）
 - 不要只回复文字作为结束，必须显式调用 finish 工具
 
+ask_user 工具的使用：
+- 信息不足或存在多个合理方案时，先调用 ask_user 征询用户，不要凭空假设
+- 能通过工具自行确认的信息（读文件、搜索）不要问用户
+- 一次只问一个问题，选项控制在 2-4 个且互斥
+
 回答要求：
 - 代码要清晰、有注释
 - 解释要简洁明了
@@ -113,7 +118,12 @@ export class Agent {
     this.onConfirm = options?.onConfirm;
     // 内置工具在 ToolManager 构造时自动注册；同一 logger 实例贯穿全链路
     this.toolManager = new ToolManager(projectPath, this.logger);
-    this.toolContext = { projectPath, logger: this.logger };
+    this.toolContext = {
+      projectPath,
+      logger: this.logger,
+      // 未注入时 ask_user 自行降级为错误观察，不在此处兜底
+      requestUserInput: options?.onAskUser,
+    };
     this.maxSteps = config.maxSteps ?? 10;
     this.contextManager = new ContextManager(
       config.contextTokens,

@@ -4,6 +4,7 @@
 
 import type { ToolResult } from './tool.js';
 import type { Logger } from './logger.js';
+import type { UserInputCallback } from './user-input.js';
 
 // 对话角色
 export type ChatRole = 'system' | 'user' | 'assistant' | 'tool';
@@ -90,10 +91,12 @@ export type ToolConfirmCallback = (toolCall: ToolCall) => Promise<boolean>;
  * Agent 构造选项（第三参 options 对象，避免位置参数持续膨胀）
  *
  * - onConfirm：高危工具确认回调，未注入时自动放行
+ * - onAskUser：用户输入回调，未注入时 ask_user 降级为错误观察
  * - logger：开发者诊断日志器，未注入时各环节落到 NullLogger（库静默原则）
  */
 export interface AgentOptions {
   onConfirm?: ToolConfirmCallback;
+  onAskUser?: UserInputCallback;
   logger?: Logger;
 }
 
