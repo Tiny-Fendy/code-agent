@@ -12,7 +12,7 @@ import { ConsoleLogger } from './logger';
 
 const logger = new ConsoleLogger();
 
-// 契约键白名单：registerAll 类名推导的运行时保险（编译期仍由泛型约束）
+// 契约键白名单：registerAll 读取 serviceName 的运行时保险（编译期仍由泛型约束）
 const SERVICE_KEYS = ['config', 'chat', 'file'] as const satisfies ReadonlyArray<
   keyof MainServices
 >;
@@ -66,7 +66,7 @@ function createWindow() {
 app.whenReady().then(async () => {
   // RPC：注册服务（config / chat / file）并接上 IPC
   const router = new RpcRouter<MainServices>({ serviceKeys: SERVICE_KEYS });
-  await registerServices(router, app.getPath('userData'));
+  await registerServices(router, app.getPath('userData'), logger);
   bindIpc(router);
 
   createWindow();

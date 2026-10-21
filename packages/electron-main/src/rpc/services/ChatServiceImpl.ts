@@ -9,16 +9,20 @@
  */
 
 import { Agent } from '@code-agent/agent-core';
-import type { AgentEvent, ChatService, SendResult } from '@code-agent/contracts';
+import type { AgentEvent, ChatService, Logger, SendResult } from '@code-agent/contracts';
 import type { RpcStream } from '@code-agent/rpc/protocol';
 import { createRpcStream } from '@code-agent/rpc/main';
 import type { ConfigServiceImpl } from './ConfigServiceImpl';
 import type { WorkspaceState } from './WorkspaceState';
 
 export class ChatServiceImpl implements ChatService {
+  /** 服务注册名（契约 ServiceDef 显式声明，Router.registerAll 读取） */
+  readonly serviceName = 'chat' as const;
+
   constructor(
     private readonly config: ConfigServiceImpl,
     private readonly workspace: WorkspaceState,
+    private readonly logger: Logger,
   ) {}
 
   send(_message: string): RpcStream<AgentEvent, SendResult> {
@@ -35,6 +39,8 @@ export class ChatServiceImpl implements ChatService {
       },
       // 未打开项目时退化为当前工作目录
       this.workspace.projectPath ?? process.cwd(),
+      // options 对象形式（logging/design D4）：后续 onConfirm 接线也走这里
+      { logger: this.logger },
     );
 
     // 形态 B：拉模式包装，生成器 return 的 SendResult 即流终局结果
