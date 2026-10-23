@@ -21,10 +21,12 @@
     "@code-agent/contracts": "workspace:*",
     "fetch-sse-client": "workspace:*",
     "ignore": "^5.3.2",
-    "ripgrep": "^0.3.1"
+    "ripgrep": "^0.3.1",
+    "turndown": "^7.2.4"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
+    "@types/turndown": "^5.0.6",
     "vite": "^6",
     "vitest": "^5.0.5"
   }

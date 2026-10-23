@@ -20,6 +20,7 @@ import {
 import { RunCommandTool } from './shell/index.js';
 import { FinishTool } from './finish/index.js';
 import { AskUserTool } from './ask-user/index.js';
+import { WebFetchTool } from './web-fetch/index.js';
 
 export class ToolManager {
   private tools = new Map<string, Tool>();
@@ -41,6 +42,7 @@ export class ToolManager {
       new RunCommandTool(projectPath),
       new FinishTool(),
       new AskUserTool(),
+      new WebFetchTool(),
     ];
   }
 
