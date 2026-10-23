@@ -94,7 +94,7 @@
 
 - [x] 更新 `openspec/systems/tool-system.md` 工具清单（新增 finish）
 - [x] 更新 `openspec/systems/agent-engine.md` done 事件说明与变更记录
-- [x] 更新 `openspec/changes/finish-tool/tasks.md` 勾选全部任务
+- [x] 更新 `openspec/changes/003-finish-tool/tasks.md` 勾选全部任务
 
 **验收标准**：
 - 文档与代码实态一致 ✅

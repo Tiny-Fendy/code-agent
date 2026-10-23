@@ -1,6 +1,6 @@
 # Logging（开发者诊断日志）
 
-> 持久化设计文档，与代码保持严格一致。规格来源：openspec/changes/logging/。
+> 持久化设计文档，与代码保持严格一致。规格来源：openspec/changes/006-logging/。
 > 状态：已落地（2026-10-19）。
 
 ## 1. 目标与原则

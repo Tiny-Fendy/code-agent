@@ -123,7 +123,7 @@ Task 5 (文档) 最后执行 ──────────┘
 
 ## 关联文档
 
-- 需求规格：`openspec/changes/sse-client-integration/spec.md`
-- 设计方案：`openspec/changes/sse-client-integration/design.md`
+- 需求规格：`openspec/changes/005-sse-client-integration/spec.md`
+- 设计方案：`openspec/changes/005-sse-client-integration/design.md`
 - 子系统设计：`openspec/systems/llm-provider.md`（三层架构已定稿，本次落地剩余两项）
 - 网络层设计：`libs/fetch-sse-client/openspec/systems/fetch-sse-client.md`

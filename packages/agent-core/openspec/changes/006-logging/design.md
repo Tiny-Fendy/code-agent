@@ -58,9 +58,9 @@
 1. **类型面**：`Agent` 构造签名变更为 `(config, projectPath, options?: AgentOptions)`；传入第 3 个 `ToolConfirmCallback` 将报 TS 类型错误。当前无调用方触发。
 2. **文档面**：多处设计文档与用法注释仍写 `onConfirm` 为第三参数，需同步更正——
    - `src/index.ts` 用法示例注释
-   - `openspec/changes/context-compaction/design.md:68`（`constructor(config, projectPath, onConfirm?)  // 不变`）
-   - `openspec/changes/file-tools/design.md:10`
-   - `electron-main/openspec/changes/rpc-communication/design.md:190`（`new Agent(this.config, this.projectPath)` 快照，2 参无影响，但可核对）
+   - `openspec/changes/002-context-compaction/design.md:68`（`constructor(config, projectPath, onConfirm?)  // 不变`）
+   - `openspec/changes/001-file-tools/design.md:10`
+   - `electron-main/openspec/changes/001-rpc-communication/design.md:190`（`new Agent(this.config, this.projectPath)` 快照，2 参无影响，但可核对）
 3. **未来接线面**：electron-main 落实工具确认门控（把 `confirmTool` 接成真实回调）时，须按新签名传 `{ onConfirm }`，不能再写第三位置参数。
 
 **迁移步骤（供宿主侧协作方执行）**：

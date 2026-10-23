@@ -45,7 +45,7 @@ export class OpenAICompatibleProvider extends LLMProvider {
   }
 
   async *chat(params: ChatCompletionParams): AsyncGenerator<LLMEvent> {
-    // mock 开关：开发态剧本驱动（详见 openspec/changes/mock-provider/design.md），
+    // mock 开关：开发态剧本驱动（详见 openspec/changes/004-mock-provider/design.md），
     // 切换点收在 LLM 层内部，Agent 与调用方零感知
     if (mockEnabled()) {
       yield* mockStream(params);

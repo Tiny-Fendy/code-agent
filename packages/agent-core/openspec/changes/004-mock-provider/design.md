@@ -156,7 +156,7 @@ chat(params)
 ## 5. 与现有机制的关系
 
 - **Agent 引擎**：零改动。mock 事件走既有 callLLM 分发，TextDelta/ToolCallDelta 透传、MessageComplete 组装、Error → llmFailed 全部复用
-- **日志变更（openspec/changes/logging，未实施）**：相互独立无文件冲突；logging 落地后可在委托分支补一条 debug 埋点（`mock 模式启用`），非必须
+- **日志变更（openspec/changes/006-logging，未实施）**：相互独立无文件冲突；logging 落地后可在委托分支补一条 debug 埋点（`mock 模式启用`），非必须
 - **现有测试**：默认关闭，零改动通过；AgentRun.test.ts 的 FakeProvider（事件级边缘用例注入）与 MockProvider（消息级剧本驱动）互补，不互替
 - **electron-main**：本次零改动；未来调试入口可通过 env（零代码）或 import setMockProvider（精细控制）接入
 

@@ -7,7 +7,7 @@
  * 1. 维护消息列表（system / user / assistant / tool）
  * 2. 提供消息的增删查能力
  * 3. Token 估算（中英分桶）
- * 4. 上下文压缩支持（入口截断、分区切点）——见 openspec/changes/context-compaction/
+ * 4. 上下文压缩支持（入口截断、分区切点）——见 openspec/changes/002-context-compaction/
  *
  * 当前为基础版本，压缩/裁剪能力开发中。
  */

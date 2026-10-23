@@ -63,7 +63,7 @@ chat() 以 AsyncGenerator\<LLMEvent\> 产出事件，最后一定以 message_com
 
 定位：开发态工具而非正式功能，用于半流程验证（除 LLM 外的全链路：工具链、确认流、压缩、finish）与问题复现，不消耗 token。
 
-关键设计（详见 `openspec/changes/mock-provider/design.md`）：
+关键设计（详见 `openspec/changes/004-mock-provider/design.md`）：
 
 - **外部零感知**：`chat()` 入口 `if (mockEnabled()) { yield* mockStream(params); return; }` 薄委托，Agent / contracts / 调用方零改动；未来三层重构后委托仍位于编排层入口，不冲突
 - **事件同构硬约束**：Mock 合成的事件 data 形状与真实 Provider 输出逐字段对齐（TextDelta 分块、ToolCallDelta 累积形状、MessageComplete 完整消息），保证 Agent 全链路被真实驱动

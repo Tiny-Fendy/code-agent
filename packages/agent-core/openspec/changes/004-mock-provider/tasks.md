@@ -97,6 +97,6 @@ Task 5 (文档) 最后执行
 
 ## 备注
 
-- 与 logging 变更（openspec/changes/logging，未实施）相互独立、无文件冲突；logging 落地后可在委托分支补 debug 埋点，非必须
+- 与 logging 变更（openspec/changes/006-logging，未实施）相互独立、无文件冲突；logging 落地后可在委托分支补 debug 埋点，非必须
 - electron-main 侧本次零改动；env 入口（CODE_AGENT_MOCK_SCRIPT）即可零代码接入
 - 全量验证结果：vitest 123 项通过、src typecheck 通过、build 通过

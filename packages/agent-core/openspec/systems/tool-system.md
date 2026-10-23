@@ -17,7 +17,7 @@
 | Schema 导出 / 按名执行 / 确认查询 | ToolManager | 面向 Agent 的三个调度接口 |
 | 路径安全 | PathGuard | 校验路径不逃逸出项目根目录 |
 | 文件操作公共设施 | FsService | 文件读写等共享逻辑 |
-| 工具能力实现 | file/（5 个）、shell/（1 个） | 纯能力类，不关心谁注册它 |
+| 工具能力实现 | file/（5 个）、shell/（1 个）、web-fetch/（1 个） | 纯能力类，不关心谁注册它 |
 
 ## 3. 接入标准（领域知识）
 
@@ -56,6 +56,7 @@ Agent：把 ToolResult 以 role='tool' 消息回灌上下文
 | run_command | Shell 命令执行 | **是** |
 | finish | 任务完成时显式结束循环 | 否 |
 | ask_user | 请求用户选择或输入（经宿主回调） | 否 |
+| web_fetch | 网页/只读接口抓取（format 转 markdown/text/html） | **是** |
 
 ## 6. 关键设计决策
 
@@ -68,6 +69,10 @@ Agent：把 ToolResult 以 role='tool' 消息回灌上下文
 | Shell 输出上限 + 超时强杀 | 防止单次回灌撑爆上下文（配合 ContextManager 入口截断双保险）、防止命令挂死 |
 | 所有文件工具经 PathGuard | 统一安全边界，路径逃逸在工具入口即被拦截 |
 | 用户交互能力放 ToolContext，不经 ToolManager | 调度层不承载宿主交互语义；自定义工具注入后同样可用；未注入时工具自行降级为错误观察 |
+| HTTP 工具只放行 http/https 且限长 | 挡住 `file:` / `data:` 等本地或异常协议，是网络工具唯一强制边界；校验在 I/O 之前完成 |
+| 响应做「字节 + 字符」双层截断 | 5 MiB 字节上限保护内存与带宽，10000 字符上限保护上下文窗口；两级职责不同 |
+| 收到 4xx/5xx 仍返回 success | 状态码是 LLM 需要推理的观察，与 run_command 把非零退出码当正常结果同一理由 |
+| web_fetch 只做 GET 且每次确认 | 与 Claude Code / opencode 的「只读抓取 + 权限优先」一致；写请求交给 run_command |
 
 ## 7. 已知限制与非目标
 
@@ -76,6 +81,9 @@ Agent：把 ToolResult 以 role='tool' 消息回灌上下文
 - 无工具权限分级、无 per-project 工具开关
 - 自定义工具注入入口已就绪，但尚无真实使用场景验证
 - ask_user 的超时与取消由宿主回调负责；回调不返回时工具调用会保持挂起（与确认流相同）
+- web_fetch 不支持自定义请求头，需要鉴权的地址抓不了；无域名黑白名单、不拦截内网地址；重定向中间跳链不可见
+- web_fetch 的图片等二进制内容只回显元信息（ToolResult 无附件通道），且不缓存响应
+- 工具层没有贯穿执行的取消通道，运行中的 web_fetch 只能等自身超时（上限 120s）
 
 ## 8. 变更记录
 
@@ -83,5 +91,6 @@ Agent：把 ToolResult 以 role='tool' 消息回灌上下文
 |------|------|------------|
 | 2026-10-14 | 初版补录：接入标准、组装与调度流程、6 个内置工具、关键设计决策（均已落地） | `openspec/file-tools/`、本会话 shell 工具与组装点重构 |
 | 2026-10-14 | PathGuard 修复：项目根在构造时归一化（realpathSync），修复符号链接形式的根路径（如 macOS /var/folders）下全部合法访问被误判为"符号链接指向项目外"的问题；新增工具层单测 `test/tools.test.ts`（29 项） | — |
-| 2026-10-16 | finish 工具落地：第 7 个内置工具，LLM 显式调用结束任务循环；`@/` 别名配置统一测试导入路径 | `changes/finish-tool/` |
-| 2026-10-21 | ask_user 工具落地：第 8 个内置工具，经 `ToolContext.requestUserInput` 向宿主请求用户选择/输入；支持单选、多选、自由文本；未接入能力时降级为错误观察 | `changes/ask-user-tool/` |
+| 2026-10-16 | finish 工具落地：第 7 个内置工具，LLM 显式调用结束任务循环；`@/` 别名配置统一测试导入路径 | `changes/003-finish-tool/` |
+| 2026-10-21 | ask_user 工具落地：第 8 个内置工具，经 `ToolContext.requestUserInput` 向宿主请求用户选择/输入；支持单选、多选、自由文本；未接入能力时降级为错误观察 | `changes/007-ask-user-tool/` |
+| 2026-10-23 | web_fetch 工具落地：第 9 个内置工具，Agent 首次具备出网能力；仅 GET、参数 url/format/timeout_ms、format 三档（turndown 转 Markdown）、5 MiB + 10000 字符双层截断、每次调用确认；设计对标 Claude Code `WebFetch` 与 opencode `webfetch` | `changes/008-web-fetch-tool/` |

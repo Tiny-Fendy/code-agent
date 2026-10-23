@@ -1,7 +1,7 @@
 /**
  * 日志模块（面向开发者的诊断通道，与 AgentEvent 产品事件严格分离）
  *
- * 设计文档：openspec/changes/logging/design.md
+ * 设计文档：openspec/changes/006-logging/design.md
  */
 
 export { ConsoleLogger } from './ConsoleLogger.js';

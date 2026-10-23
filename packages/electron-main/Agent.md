@@ -31,7 +31,7 @@ src/
 
 ## RPC 通信
 
-渲染层 ↔ 主进程走**单通道 dispatch + 信封协议**（设计文档：`openspec/changes/rpc-communication/`）：
+渲染层 ↔ 主进程走**单通道 dispatch + 信封协议**（设计文档：`openspec/changes/001-rpc-communication/`）：
 
 - `rpc:invoke`：渲染层 → 主进程，载荷 `{ service, method, args }`，返回 `{ ok, data | error }` 信封
 - `rpc:stream`：主进程 → 渲染层，流式方法按 `streamId` 推送 `next` / `return` / `throw` 帧
