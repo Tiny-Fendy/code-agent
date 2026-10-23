@@ -10,6 +10,8 @@ import { Button, Space, Tag, Typography } from 'antd';
 import { CodeOutlined, SettingOutlined } from '@ant-design/icons';
 import { IS_MOCK } from '@/infrastructure/bridge';
 import { useSettingsStore } from '@/presentation/store/settingsStore';
+import { useProjectStore } from '@/presentation/store/projectStore';
+import { basename } from '@/domain/file/tree';
 
 const { Text, Title } = Typography;
 
@@ -17,6 +19,8 @@ export default function TopBar() {
   const config = useSettingsStore((s) => s.config);
   const loading = useSettingsStore((s) => s.loading);
   const loadConfig = useSettingsStore((s) => s.loadConfig);
+  const openSettings = useSettingsStore((s) => s.openSettings);
+  const projectPath = useProjectStore((s) => s.projectPath);
 
   useEffect(() => {
     loadConfig().catch((err: unknown) => {
@@ -40,9 +44,13 @@ export default function TopBar() {
       </Space>
 
       <Space size={8}>
+        {projectPath && (
+          <Tag color="blue" className="top-bar-project" title={projectPath}>
+            项目：{basename(projectPath)}
+          </Tag>
+        )}
         <Text type="secondary">{modelText}</Text>
-        {/* TODO(阶段④)：接入设置面板 Modal */}
-        <Button type="text" icon={<SettingOutlined />} aria-label="设置" />
+        <Button type="text" icon={<SettingOutlined />} aria-label="设置" onClick={openSettings} />
       </Space>
     </header>
   );

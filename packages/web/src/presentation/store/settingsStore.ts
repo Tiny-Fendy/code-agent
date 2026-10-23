@@ -15,6 +15,11 @@ interface SettingsState {
   loading: boolean;
   saving: boolean;
 
+  /** 设置弹窗开关：放 store 里让多个入口（顶栏按钮等）共享 */
+  open: boolean;
+  openSettings: () => void;
+  closeSettings: () => void;
+
   loadConfig: () => Promise<void>;
   saveConfig: (config: AppConfig) => Promise<void>;
   testConnection: () => Promise<TestConnResult>;
@@ -24,6 +29,10 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   config: null,
   loading: false,
   saving: false,
+  open: false,
+
+  openSettings: () => set({ open: true }),
+  closeSettings: () => set({ open: false }),
 
   loadConfig: async () => {
     set({ loading: true });

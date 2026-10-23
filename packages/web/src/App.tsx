@@ -10,22 +10,28 @@ import { Layout } from 'antd';
 import TopBar from '@/presentation/components/TopBar';
 import FileTreePanel from '@/presentation/components/FileTree/FileTreePanel';
 import ChatArea from '@/presentation/components/Chat/ChatArea';
+import SettingsModal from '@/presentation/components/Settings/SettingsModal';
 
 const { Sider, Content } = Layout;
 
 function App() {
   return (
-    <Layout className="app-layout">
-      <TopBar />
-      <Layout className="app-body">
-        <Sider width={260} theme="light" className="app-sider">
-          <FileTreePanel />
-        </Sider>
-        <Content className="app-content">
-          <ChatArea />
-        </Content>
+    <>
+      <Layout className="app-layout">
+        <TopBar />
+        <Layout className="app-body">
+          <Sider width={260} theme="light" className="app-sider">
+            <FileTreePanel />
+          </Sider>
+          <Content className="app-content">
+            <ChatArea />
+          </Content>
+        </Layout>
       </Layout>
-    </Layout>
+
+      {/* 全局弹层：入口在顶栏，开关状态在 settingsStore */}
+      <SettingsModal />
+    </>
   );
 }
 
