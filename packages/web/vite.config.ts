@@ -8,10 +8,15 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, 'src'),
+      // 用 import.meta.dirname（ESM 原生）替代 __dirname：
+      // Vite 未来主版本将默认使用 native config loader，不再支持 __dirname
+      '@': path.resolve(import.meta.dirname, 'src'),
     },
   },
   server: {
     port: 5173,
+  },
+  build: {
+    sourcemap: true,
   },
 });

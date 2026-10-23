@@ -8,6 +8,7 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       outDir: resolve(__dirname, 'dist/main'),
+      sourcemap: true,
       // dev 模式监听源码改动：重建后由 electron-vite 自动重启 Electron 进程
       // （等效于 electron-vite dev --watch，固化到配置免带 CLI 参数）
       watch: {},
@@ -22,6 +23,7 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       outDir: resolve(__dirname, 'dist/preload'),
+      sourcemap: true,
       // 同上：preload 重建后自动刷新窗口
       watch: {},
       rollupOptions: {
@@ -39,6 +41,7 @@ export default defineConfig({
     },
     build: {
       outDir: resolve(__dirname, 'dist/renderer'),
+      sourcemap: true,
       rollupOptions: {
         input: {
           index: resolve(__dirname, '../web/index.html'),
