@@ -1,8 +1,8 @@
 /**
  * 纯 Web 模式的 mock Transport（v2）
  *
- * 传输机制由 @code-agent/rpc/mock 框架提供（信封协议 / 流帧泵送 / 取消链路），
- * 本文件只声明业务场景：config 存取、chat 假 Agent 事件流、file 空实现。
+ * 完全自实现 Transport 接口（invoke / onStream），不依赖 @code-agent/rpc/mock 框架，
+ * 以便支持工具确认流的挂起-恢复时序。
  *
  * 三种终局均可触发：
  * - 默认：事件序列推完 → end{completed, result: SendResult.completed}
@@ -13,13 +13,20 @@
  * - 调用句柄 abort()：end{aborted}，泵送立即停止
  */
 
-import { createMockTransport as createMockTransportFrame } from '@code-agent/rpc/mock';
-import type { Transport, StreamFrame } from '@code-agent/rpc/protocol';
+import type { Transport, StreamFrame, RpcResponse } from '@code-agent/rpc/protocol';
 import {
   DEFAULT_CONFIG,
   type AgentEvent,
   type AppConfig,
+  type FileNode,
 } from '@code-agent/contracts';
+
+type SendResult =
+  | { status: 'completed'; steps: number }
+  | { status: 'finished'; steps: number; summary: string }
+  | { status: 'llmFailed'; message: string }
+  | { status: 'maxSteps'; steps: number }
+  | { status: 'aborted' };
 
 /** 构造一条假的 Agent 事件序列：回显用户消息，模拟流式输出（不含终局事件） */
 function buildFakeEvents(userMessage: string): AgentEvent[] {
@@ -35,11 +42,103 @@ function buildFakeEvents(userMessage: string): AgentEvent[] {
   return events;
 }
 
-/** 工具确认流的挂起决策：resolve 时继续 pump，并带上用户选择 */
+/** 工具确认流的挂起决策 */
 interface ConfirmDecision {
   resolve: (ok: boolean) => void;
   promise: Promise<boolean>;
 }
+
+// ---- 假项目（纯浏览器调试文件树与预览） ----
+
+const DEMO_ROOT = '/Users/tiny/Project/demo';
+
+const FAKE_TREE: FileNode[] = [
+  {
+    name: 'src',
+    path: `${DEMO_ROOT}/src`,
+    type: 'directory',
+    children: [
+      { name: 'index.ts', path: `${DEMO_ROOT}/src/index.ts`, type: 'file' },
+      { name: 'app.tsx', path: `${DEMO_ROOT}/src/app.tsx`, type: 'file' },
+      { name: 'styles.css', path: `${DEMO_ROOT}/src/styles.css`, type: 'file' },
+      {
+        name: 'utils',
+        path: `${DEMO_ROOT}/src/utils`,
+        type: 'directory',
+        children: [{ name: 'format.ts', path: `${DEMO_ROOT}/src/utils/format.ts`, type: 'file' }],
+      },
+    ],
+  },
+  { name: 'package.json', path: `${DEMO_ROOT}/package.json`, type: 'file' },
+  { name: 'README.md', path: `${DEMO_ROOT}/README.md`, type: 'file' },
+];
+
+const FAKE_CONTENT: Record<string, string> = {
+  [`${DEMO_ROOT}/src/index.ts`]: `import { createApp } from './app';
+
+const app = createApp({ port: 3000 });
+
+app.listen(() => {
+  console.log('demo server started');
+});
+`,
+  [`${DEMO_ROOT}/src/app.tsx`]: `import { useState } from 'react';
+
+export function Counter() {
+  const [count, setCount] = useState(0);
+
+  return (
+    <button onClick={() => setCount((c) => c + 1)}>
+      点击次数：{count}
+    </button>
+  );
+}
+`,
+  [`${DEMO_ROOT}/src/styles.css`]: `:root {
+  --brand: #12b886;
+}
+
+.button {
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: var(--brand);
+  color: #fff;
+}
+`,
+  [`${DEMO_ROOT}/src/utils/format.ts`]: `export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return \`\${bytes} B\`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return \`\${kb.toFixed(1)} KB\`;
+  return \`\${(kb / 1024).toFixed(1)} MB\`;
+}
+`,
+  [`${DEMO_ROOT}/package.json`]: `{
+  "name": "demo",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build"
+  }
+}
+`,
+  [`${DEMO_ROOT}/README.md`]: `# Demo 项目
+
+用于验证文件预览的假项目。
+
+## 启动
+
+\`\`\`bash
+pnpm install
+pnpm dev
+\`\`\`
+
+## 说明
+
+- 文件内容全部来自 mock transport
+- 仅支持只读预览
+`,
+};
 
 function makeConfirmDecision(): ConfirmDecision {
   let resolve!: (ok: boolean) => void;
@@ -47,188 +146,210 @@ function makeConfirmDecision(): ConfirmDecision {
   return { resolve, promise };
 }
 
-/** 自管理流：/tool 场景不走框架脚本，自己控制帧推送时序 */
-function createToolConfirmStream(
-  emit: (frame: StreamFrame<AgentEvent, { status: string; steps?: number; message?: string; summary?: string }>) => void,
-  isAborted: () => boolean,
-  decision: ConfirmDecision,
-): void {
+export function createMockTransport(): Transport {
+  let configStore: AppConfig = structuredClone(DEFAULT_CONFIG);
+  let pendingConfirm: ConfirmDecision | null = null;
+
+  const listeners = new Set<(frame: StreamFrame) => void>();
+  /** streamId → 是否已取消 */
+  const aborted = new Map<string, boolean>();
+
+  const emit = (frame: StreamFrame) => {
+    for (const cb of listeners) cb(frame);
+  };
+
   const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-  void (async () => {
-    const push = (event: AgentEvent) => {
-      if (isAborted()) return;
-      emit({ streamId: 'tool-stream', kind: 'next', value: event });
-    };
+  /** 泵送普通脚本事件 */
+  const pumpScript = (
+    streamId: string,
+    events: AgentEvent[],
+    intervalMs: number,
+    end: { status: 'completed'; result: SendResult } | { status: 'failed'; error: { code: string; message: string } },
+  ) => {
+    void (async () => {
+      for (const event of events) {
+        if (intervalMs) await delay(intervalMs);
+        if (aborted.get(streamId)) return;
+        emit({ streamId, kind: 'next', value: event });
+      }
+      if (aborted.get(streamId)) return;
+      emit({ streamId, kind: 'end', value: end });
+    })();
+  };
 
-    push({ type: 'text_delta', data: { delta: '我需要执行一个工具来帮助你。' } });
-    await delay(300);
+  /** 泵送工具确认流 */
+  const pumpToolConfirm = (streamId: string, decision: ConfirmDecision) => {
+    void (async () => {
+      const push = (event: AgentEvent) => {
+        if (aborted.get(streamId)) return;
+        emit({ streamId, kind: 'next', value: event });
+      };
 
-    push({
-      type: 'tool_call_start',
-      data: {
-        toolCallId: 'mock-tool-1',
-        toolName: 'read_file',
-        arguments: { path: '/Users/tiny/Project/demo/src/index.ts' },
-      },
-    });
-    await delay(200);
+      push({ type: 'text_delta', data: { delta: '我需要执行一个工具来帮助你。' } });
+      await delay(300);
 
-    push({
-      type: 'tool_call_confirm',
-      data: {
-        toolCallId: 'mock-tool-1',
-        toolName: 'read_file',
-        arguments: { path: '/Users/tiny/Project/demo/src/index.ts' },
-      },
-    });
-
-    // 挂起等待用户决策
-    const ok = await decision.promise;
-    if (isAborted()) return;
-
-    if (ok) {
       push({
-        type: 'tool_call_result',
+        type: 'tool_call_start',
         data: {
           toolCallId: 'mock-tool-1',
           toolName: 'read_file',
-          result: {
-            success: true,
-            content: 'export function main() {\n  console.log("hello");\n}',
-          },
+          arguments: { path: '/Users/tiny/Project/demo/src/index.ts' },
         },
       });
       await delay(200);
-      push({ type: 'text_delta', data: { delta: '\n文件读取成功，内容如上。' } });
-    } else {
-      push({ type: 'text_delta', data: { delta: '\n好的，我跳过了文件读取。' } });
-    }
 
-    push({
-      type: 'message_complete',
-      data: {
-        message: { role: 'assistant', content: '工具调用流程结束。' },
-        step: 1,
-      },
-    });
+      push({
+        type: 'tool_call_confirm',
+        data: {
+          toolCallId: 'mock-tool-1',
+          toolName: 'read_file',
+          arguments: { path: '/Users/tiny/Project/demo/src/index.ts' },
+        },
+      });
 
-    if (isAborted()) return;
-    emit({
-      streamId: 'tool-stream',
-      kind: 'end',
-      value: { status: 'completed', result: { status: 'completed', steps: 1 } },
-    });
-  })();
-}
+      // 挂起等待用户决策
+      const ok = await decision.promise;
+      if (aborted.get(streamId)) return;
 
-export function createMockTransport(): Transport {
-  let configStore: AppConfig = structuredClone(DEFAULT_CONFIG);
-  /** 当前挂起中的工具确认（同一时间只挂起一个） */
-  let pendingConfirm: ConfirmDecision | null = null;
-  /** 自管理流的取消标记（streamId → aborted） */
-  const selfAborted = new Map<string, boolean>();
-
-  // 先建框架 transport，处理普通场景
-  const frameTransport = createMockTransportFrame({
-    invoke(service, method, args) {
-      // ---- config ----
-      if (service === 'config' && method === 'get') return structuredClone(configStore);
-      if (service === 'config' && method === 'set') {
-        configStore = args[0] as AppConfig;
-        return null;
-      }
-      if (service === 'config' && method === 'testConnection') return { ok: true };
-
-      // ---- file ----
-      if (service === 'file' && method === 'openFolderDialog') return '/Users/tiny/Project/demo';
-      if (service === 'file' && method === 'getFileTree') return [];
-      if (service === 'file' && method === 'readFile') return '';
-
-      return undefined; // 未命中 → METHOD_NOT_FOUND
-    },
-
-    stream(service, method, args) {
-      if (service !== 'chat' || method !== 'send') return undefined;
-
-      const userMessage = String(args[0]);
-      const wantFail = userMessage.trim().startsWith('/fail');
-      const wantTool = userMessage.trim().startsWith('/tool');
-
-      // /tool 场景不走框架脚本，由外层自管理
-      if (wantTool) return undefined;
-
-      return {
-        events: buildFakeEvents(userMessage),
-        intervalMs: 120,
-        end: wantFail
-          ? {
-              status: 'completed',
-              result: {
-                status: 'llmFailed',
-                message: 'mock：模拟上游错误（发送 /fail 触发）',
-              },
-            }
-          : { status: 'completed', result: { status: 'completed', steps: 1 } },
-      };
-    },
-  });
-
-  // 包装：对 /tool 场景和 confirmTool 自己处理，其余透传
-  const wrapped: Transport = {
-    onStream: (cb) => frameTransport.onStream(cb),
-
-    async invoke(service, method, args) {
-      // ---- chat.confirmTool：决议挂起的工具确认 ----
-      if (service === 'chat' && method === 'confirmTool') {
-        const ok = args[1] as boolean;
-        pendingConfirm?.resolve(ok);
-        pendingConfirm = null;
-        return { ok: true, data: null };
+      if (ok) {
+        push({
+          type: 'tool_call_result',
+          data: {
+            toolCallId: 'mock-tool-1',
+            toolName: 'read_file',
+            result: {
+              success: true,
+              content: 'export function main() {\n  console.log("hello");\n}',
+            },
+          },
+        });
+        await delay(200);
+        push({ type: 'text_delta', data: { delta: '\n文件读取成功，内容如上。' } });
+      } else {
+        push({ type: 'text_delta', data: { delta: '\n好的，我跳过了文件读取。' } });
       }
 
-      // ---- chat.send /tool：自管理流 ----
-      if (service === 'chat' && method === 'send') {
-        const userMessage = String(args[0]);
-        if (!userMessage.trim().startsWith('/tool')) {
-          return frameTransport.invoke(service, method, args);
-        }
+      push({
+        type: 'message_complete',
+        data: {
+          message: { role: 'assistant', content: '工具调用流程结束。' },
+          step: 1,
+        },
+      });
 
-        const streamId = crypto.randomUUID();
-        selfAborted.set(streamId, false);
-
-        const decision = makeConfirmDecision();
-        pendingConfirm = decision;
-
-        // 需要把 emit 绑定到 frameTransport 的 onStream 上
-        // 但 frameTransport 的 emit 是内部的，我们拿不到
-        // 所以这里用 hack：在 frameTransport 的 onStream 里加一层转发
-        // 实际上 frameTransport.onStream 已经注册到内部 listeners
-        // 我们只需要在自管理流里直接调用 frameTransport 的 emit
-        // 但 emit 不在 Transport 接口上
-        //
-        // 换个思路：自管理流也走 frameTransport 的 invoke，只是 script.events 里
-        // 放一个永远 pending 的 Promise 作为 gate。但用户删了 gate 支持。
-        //
-        // 最终方案：在 web 层完全自实现一个 Transport，不嵌套框架。
-        // 这样代码虽多但清晰，且 config/file/chat 都在一处。
-        return { ok: true, data: { __stream: streamId } };
-      }
-
-      // ---- __stream.cancel：自管理流的取消 ----
-      if (service === '__stream' && method === 'cancel') {
-        const streamId = String(args[0]);
-        if (selfAborted.has(streamId)) {
-          selfAborted.set(streamId, true);
-          // 需要 emit aborted 帧，但拿不到 emit
-          // 所以自管理流方案在这里卡住了
-        }
-        return frameTransport.invoke(service, method, args);
-      }
-
-      return frameTransport.invoke(service, method, args);
-    },
+      if (aborted.get(streamId)) return;
+      emit({
+        streamId,
+        kind: 'end',
+        value: { status: 'completed', result: { status: 'completed', steps: 1 } },
+      });
+    })();
   };
 
-  return wrapped;
+  return {
+    onStream(cb) {
+      listeners.add(cb);
+      return () => listeners.delete(cb);
+    },
+
+    async invoke(service, method, args): Promise<RpcResponse<unknown>> {
+      try {
+        // ---- 保留方法：取消 ----
+        if (service === '__stream' && method === 'cancel') {
+          const streamId = String(args[0]);
+          if (aborted.get(streamId)) return { ok: true, data: null }; // 幂等
+          aborted.set(streamId, true);
+          emit({ streamId, kind: 'end', value: { status: 'aborted' } });
+          return { ok: true, data: null };
+        }
+
+        // ---- config ----
+        if (service === 'config' && method === 'get') {
+          return { ok: true, data: structuredClone(configStore) };
+        }
+        if (service === 'config' && method === 'set') {
+          configStore = args[0] as AppConfig;
+          return { ok: true, data: null };
+        }
+        if (service === 'config' && method === 'testConnection') {
+          // 地址含 "invalid" 时模拟连接失败，便于验证表单内联错误分支
+          if (configStore.api.baseUrl.includes('invalid')) {
+            return { ok: true, data: { ok: false, error: 'mock：无法连接该地址' } };
+          }
+          return { ok: true, data: { ok: true } };
+        }
+
+        // ---- chat.confirmTool ----
+        if (service === 'chat' && method === 'confirmTool') {
+          const ok = args[1] as boolean;
+          pendingConfirm?.resolve(ok);
+          pendingConfirm = null;
+          return { ok: true, data: null };
+        }
+
+        // ---- file ----
+        if (service === 'file' && method === 'openFolderDialog') {
+          return { ok: true, data: DEMO_ROOT };
+        }
+        if (service === 'file' && method === 'getFileTree') {
+          // 深拷贝：避免 UI 侧对返回值的修改污染 mock 常量
+          return { ok: true, data: structuredClone(FAKE_TREE) };
+        }
+        if (service === 'file' && method === 'readFile') {
+          const filePath = String(args[0]);
+          return {
+            ok: true,
+            data:
+              FAKE_CONTENT[filePath] ??
+              `// mock 模式：未内置该文件的假内容\n// ${filePath}\n`,
+          };
+        }
+
+        // ---- chat.send：流式方法 ----
+        if (service === 'chat' && method === 'send') {
+          const userMessage = String(args[0]);
+          const streamId = crypto.randomUUID();
+          aborted.set(streamId, false);
+
+          const wantFail = userMessage.trim().startsWith('/fail');
+          const wantTool = userMessage.trim().startsWith('/tool');
+
+          if (wantTool) {
+            const decision = makeConfirmDecision();
+            pendingConfirm = decision;
+            pumpToolConfirm(streamId, decision);
+          } else {
+            pumpScript(streamId, buildFakeEvents(userMessage), 120, wantFail
+              ? {
+                  status: 'completed',
+                  result: {
+                    status: 'llmFailed',
+                    message: 'mock：模拟上游错误（发送 /fail 触发）',
+                  },
+                }
+              : { status: 'completed', result: { status: 'completed', steps: 1 } });
+          }
+
+          return { ok: true, data: { __stream: streamId } };
+        }
+
+        return {
+          ok: false,
+          error: {
+            code: 'RPC_METHOD_NOT_FOUND',
+            message: `mock 未实现 ${service}.${method}`,
+          },
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          error: {
+            code: 'RPC_HANDLER_ERROR',
+            message: err instanceof Error ? err.message : String(err),
+          },
+        };
+      }
+    },
+  };
 }

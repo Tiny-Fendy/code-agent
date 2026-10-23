@@ -43,12 +43,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
   status: 'idle',
 
   beginTurn: (userText) => {
-    set((s) => ({ ...startTurn(s, userText), status: 'streaming' }));
+    set((s) => ({ ...startTurn({ messages: s.messages, pendingConfirmId: s.pendingConfirmId }, userText), status: 'streaming' }));
   },
 
   ingestEvent: (event) => {
     set((s) => {
-      const next = applyAgentEvent(s, event);
+      const next = applyAgentEvent({ messages: s.messages, pendingConfirmId: s.pendingConfirmId }, event);
       // tool_call_confirm 挂起会话；其余事件不改变状态机
       const status: SessionStatus =
         event.type === 'tool_call_confirm' ? 'awaiting_confirm' : s.status;
@@ -57,18 +57,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   endTurn: (result) => {
-    set((s) => ({ ...finishTurn(s, result), status: 'idle', pendingConfirmId: null }));
+    set((s) => ({ ...finishTurn({ messages: s.messages, pendingConfirmId: s.pendingConfirmId }, result), status: 'idle', pendingConfirmId: null }));
   },
 
   failTurn: (errorMessage) => {
-    set((s) => ({ ...markRpcFailure(s, errorMessage), status: 'idle', pendingConfirmId: null }));
+    set((s) => ({ ...markRpcFailure({ messages: s.messages, pendingConfirmId: s.pendingConfirmId }, errorMessage), status: 'idle', pendingConfirmId: null }));
   },
 
   resolvePendingConfirm: (ok) => {
     const { pendingConfirmId } = get();
     if (!pendingConfirmId) return;
     set((s) => ({
-      ...resolveToolConfirm(s, pendingConfirmId, ok),
+      ...resolveToolConfirm({ messages: s.messages, pendingConfirmId: s.pendingConfirmId }, pendingConfirmId, ok),
       // 放行 → agent 继续跑，回到 streaming；拒绝 → agent 收到拒绝后也会继续输出
       status: 'streaming',
       pendingConfirmId: null,

@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { ConfigProvider } from 'antd';
+import { App as AntdApp, ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import App from './App';
 import './presentation/styles/global.css';
@@ -14,7 +14,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         borderRadius: 6,
       },
     }}>
-      <App />
+      {/* AntdApp 提供 message/notification 的上下文，消除静态方法警告 */}
+      <AntdApp>
+        <App />
+      </AntdApp>
     </ConfigProvider>
   </React.StrictMode>,
 );

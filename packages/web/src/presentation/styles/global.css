@@ -16,30 +16,48 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background: #f5f5f5;
   color: rgba(0, 0, 0, 0.88);
+  /* 桌面应用外壳：禁止整页滚动，滚动只发生在各面板内部 */
+  overflow: hidden;
 }
 
 /* ---- 应用三栏骨架 ---- */
 
-/* 整体占满视口；min-height: 0 让 flex 子项可收缩，内部滚动容器才能生效 */
+/*
+ * 应用外壳固定到视口（position: fixed + inset: 0），而不是依赖
+ * html/body/#root 的 height: 100% 百分比链 —— 百分比高度要求每一级都有
+ * 确定高度，任一级退化为 auto 就会让整个布局被内容撑开，内部滚动容器失效。
+ * 这是桌面应用外壳，页面本身不应出现滚动条。
+ */
 .app-layout {
-  height: 100%;
+  position: fixed;
+  inset: 0;
 }
 
 .app-body {
+  flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 .app-sider {
+  height: 100%;
+  overflow: hidden;
   border-right: 1px solid #f0f0f0;
 }
 
+/* 纵向 flex 容器：让 chat-area 能吞掉剩余高度并给内部滚动区确定高度 */
 .app-content {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* ---- 顶栏 ---- */
 
 .top-bar {
+  flex-shrink: 0;
   height: 48px;
   padding: 0 16px;
   display: flex;
@@ -49,21 +67,108 @@ body {
   border-bottom: 1px solid #f0f0f0;
 }
 
-/* ---- 文件树面板 ---- */
+.top-bar-project {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- 文件树 ---- */
 
 .file-tree-panel {
   height: 100%;
-  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.file-tree-header {
+  flex-shrink: 0;
+  height: 40px;
+  padding: 0 4px 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.file-tree-project {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.file-tree-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.file-tree-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 4px 12px;
+}
+
+.file-tree-center {
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.file-tree-error {
+  padding: 8px;
+}
+
+.file-tree .ant-tree-node-content-wrapper {
+  font-size: 13px;
+}
+
+/* ---- 文件预览抽屉 ---- */
+
+.file-preview-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.file-preview-path {
+  font-size: 12px;
+  font-weight: 400;
+  min-width: 0;
+}
+
+.file-preview-center {
+  display: flex;
+  justify-content: center;
+  padding: 48px 0;
+}
+
+.file-preview-body .markdown-body pre {
+  margin: 0;
+  max-height: calc(100vh - 160px);
   overflow: auto;
+}
+
+/* ---- 设置面板 ---- */
+
+.settings-form .ant-form-item {
+  margin-bottom: 16px;
+}
+
+.settings-test-result {
+  margin-bottom: 0;
 }
 
 /* ---- 对话区 ---- */
 
 .chat-area {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: #fff;
@@ -74,4 +179,153 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* ---- 消息列表 ---- */
+
+.message-list-wrapper {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.message-list {
+  height: 100%;
+  overflow-y: auto;
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.back-to-bottom {
+  position: absolute;
+  bottom: 16px;
+  right: 24px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* ---- 单条消息 ---- */
+
+.message-item {
+  display: flex;
+  flex-direction: column;
+  max-width: 82%;
+}
+
+.message-user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.message-assistant {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+.message-bubble {
+  padding: 10px 14px;
+  border-radius: 8px;
+  line-height: 1.65;
+  word-break: break-word;
+}
+
+.message-user .message-bubble {
+  background: #12B886;
+  color: #fff;
+}
+
+.message-user .message-text {
+  color: #fff;
+  white-space: pre-wrap;
+}
+
+.message-assistant .message-bubble {
+  background: #f5f5f5;
+}
+
+.message-error {
+  margin-top: 8px;
+  max-width: 100%;
+}
+
+/* ---- 工具调用卡片 ---- */
+
+.tool-call-card {
+  margin: 8px 0;
+  background: #fafafa;
+}
+
+.tool-call-args,
+.tool-call-result-content {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12px;
+  background: #f0f0f0;
+  padding: 8px;
+  border-radius: 4px;
+  overflow-x: auto;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.tool-call-result {
+  margin-top: 4px;
+}
+
+/* ---- Markdown ---- */
+
+.markdown-body {
+  line-height: 1.75;
+}
+
+.markdown-body p {
+  margin-bottom: 8px;
+}
+
+.markdown-body p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body pre {
+  background: #0F172A;
+  color: #E2E8F0;
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.markdown-body code {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 0.9em;
+}
+
+.markdown-body pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 20px;
+  margin-bottom: 8px;
+}
+
+/* ---- 输入区 ---- */
+
+.chat-input {
+  flex-shrink: 0;
+  padding: 12px 24px 16px;
+  border-top: 1px solid #f0f0f0;
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.chat-input .ant-input {
+  flex: 1;
+}
+
+.chat-input-btn {
+  flex-shrink: 0;
 }

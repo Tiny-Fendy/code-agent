@@ -1,12 +1,13 @@
 /**
  * 对话区：消息列表 + 输入区
  *
- * 阶段①骨架：空会话显示引导空态；
- * 消息流渲染、工具卡片、输入框在阶段②接入（届时拆 MessageList / MessageItem / ChatInput）。
+ * 薄组件：只做布局编排，消息流与输入逻辑分别由 MessageList / ChatInput 承载。
  */
 
 import { Empty } from 'antd';
 import { useChatStore } from '@/presentation/store/chatStore';
+import MessageList from './MessageList';
+import ChatInput from './ChatInput';
 
 export default function ChatArea() {
   const hasMessages = useChatStore((s) => s.messages.length > 0);
@@ -14,8 +15,7 @@ export default function ChatArea() {
   return (
     <div className="chat-area">
       {hasMessages ? (
-        // TODO(阶段②)：MessageList（含工具卡片）+ ChatInput
-        null
+        <MessageList />
       ) : (
         <div className="chat-empty">
           <Empty
@@ -24,6 +24,7 @@ export default function ChatArea() {
           />
         </div>
       )}
+      <ChatInput />
     </div>
   );
 }
