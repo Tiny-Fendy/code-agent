@@ -37,7 +37,8 @@ Agent（agent-core 引擎，上下文累积）
 - **Agent** 不改：引擎已支持 `run()` 多次调用、`onConfirm` 挂起回调、`abort()`
 
 依赖装配不变（Composition Root 仍只 `new ChatServiceImpl(config, workspace, logger)`），
-ChatSession 由 ChatServiceImpl 内部构造。
+ChatSession 由 ChatServiceImpl 内部构造；Agent 工厂由 ChatServiceImpl 注入
+（ChatSession 仅依赖类型契约，不直接 import agent-core 实现）。
 
 ---
 
@@ -143,7 +144,7 @@ stream.onAbort → session.abort():
 | D7 | 忙锁在 `start()` 同步置位 | 异步生成器体内置位存在同 tick 重入窗口；同步检查 + 立即置位消除竞态 |
 | D8 | 完整性判定基于事件观测（message_complete / tool_call_result） | 无需访问 Agent 私有上下文；未闭环集合非空即可判定"下次必须重建"，与终局类型无关 |
 | D9 | busy 错误用立即失败流承载业务码 | 保留 `chat.*` 业务错误约定，UI 无需新增错误通道 |
-| D10 | 注入 Agent 工厂（默认真实构造） | 仅服务于单测；不引入 IoC 容器，不改变 Composition Root |
+| D10 | 注入 Agent 工厂（由 ChatServiceImpl 传入真实构造） | 仅服务于单测与包解耦；不引入 IoC 容器，不改变 Composition Root |
 
 ---
 

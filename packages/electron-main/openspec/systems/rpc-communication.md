@@ -100,6 +100,23 @@ Phase 1 已完成：机制抽离为独立包 `@code-agent/rpc`，契约包 `shar
 - AgentEvent 事件流不再含 error / done 结束事件（结束语义只有一处）
 - 消费端收口只有一处：`onEnd` 先按协议三态分支，completed 内再按 SendResult 分业务终局
 
+### 5.1 会话保持
+
+- `ChatServiceImpl` 持有 `ChatSession`，Agent 实例跨 `send()` 复用，上下文连续累积
+- 重建条件：API 配置快照变更 / 项目路径变更 / 上下文不完整（中断导致 tool_call 未闭环）
+- 重建即丢弃历史（引擎无改写历史 API），详见 [changes/003-chat-session](../changes/003-chat-session/design.md)
+
+### 5.2 工具确认门控
+
+- 高危工具执行前 yield `tool_call_confirm`，宿主 `onConfirm` 登记待决并挂起
+- 渲染层 `chat.confirmTool(toolCallId, ok)` 决议，first-wins；未知/迟到 id 静默忽略
+- 取消链路先 settle 待决确认（按拒绝），再中断引擎，避免生成器永久挂在 `await onConfirm`
+
+### 5.3 忙锁
+
+- 上一轮流未终局时再次 `send`：返回立即失败的流，业务码 `chat.BUSY`
+  （直接 throw 会被 Router 包成 `RPC_HANDLER_ERROR`，丢失业务码）
+
 ---
 
 ## 6. 错误模型应用约定
@@ -130,6 +147,8 @@ Phase 1 已完成：机制抽离为独立包 `@code-agent/rpc`，契约包 `shar
   （`@code-agent/contracts`）更名同批完成；行为零变化，Router 测试随包迁移。
   初版落地于 `packages/` 平级，后与 fetch-sse-client 一并归入 `libs/`（通用基础库目录，与业务包维护解耦）。
 - **Phase 2（规划）**：rpc 包独立构建（双格式 + dts）、最小示例工程、版本与 CHANGELOG，具备发 npm 条件。
+- **chat-session ✅ 已完成**：会话保持（Agent 复用 / 重建条件 / 忙锁）+ 工具确认门控桥接
+  （onConfirm ↔ confirmTool）+ 取消收口，见 [changes/003-chat-session/](../changes/003-chat-session/spec.md)。
 
 ## 9. 变更记录
 
