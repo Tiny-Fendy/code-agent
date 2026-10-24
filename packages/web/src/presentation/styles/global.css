@@ -322,8 +322,15 @@ body {
   align-items: flex-end;
 }
 
-.chat-input .ant-input {
+/* TextArea 带计数时会多包一层 affix wrapper，两者都要吃满剩余宽度 */
+.chat-input .ant-input,
+.chat-input .ant-input-affix-wrapper {
   flex: 1;
+}
+
+.chat-input .ant-input {
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .chat-input-btn {
