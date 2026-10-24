@@ -3,7 +3,6 @@
  */
 
 import { app, BrowserWindow } from 'electron';
-import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import type { MainServices } from '@code-agent/contracts';
 import { RpcRouter, bindIpc } from '@code-agent/rpc/main';
@@ -17,10 +16,11 @@ const SERVICE_KEYS = ['config', 'chat', 'file'] as const satisfies ReadonlyArray
   keyof MainServices
 >;
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// 包根目录（ESM 下不用 __dirname：electron-vite 会注入同名 shim，重复声明会报错）
+const BASE_DIR = import.meta.dirname;
 
 // 用于构建后的静态资源路径
-const DIST_PATH = path.join(__dirname, '../dist');
+const DIST_PATH = path.join(BASE_DIR, '../dist');
 process.env.DIST = DIST_PATH;
 process.env.VITE_PUBLIC = app.isPackaged
   ? DIST_PATH
@@ -36,7 +36,7 @@ function createWindow() {
     minWidth: 800,
     minHeight: 600,
     webPreferences: {
-      preload: path.join(__dirname, '../preload/index.mjs'),
+      preload: path.join(BASE_DIR, '../preload/index.mjs'),
       // 安全配置
       contextIsolation: true,
       nodeIntegration: false,
@@ -48,7 +48,7 @@ function createWindow() {
   if (process.env.VITE_DEV_SERVER_URL) {
     win.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
-    win.loadFile(path.join(__dirname, '../renderer/index.html'));
+    win.loadFile(path.join(BASE_DIR, '../renderer/index.html'));
   }
 
   // 本地开发模式下自动打开 DevTools
