@@ -58,20 +58,24 @@ describe('参数校验', () => {
       ctxWith(vi.fn()),
     );
     expect(result.success).toBe(false);
-    expect(result.error).toContain('2-4');
+    // 数量约束由 schema 的 minItems/maxItems 承担
+    expect(result.error).toContain('参数校验失败');
+    expect(result.error).toContain('/options');
   });
 
   it('options 超过 4 个返回 error', async () => {
     const options = ['A', 'B', 'C', 'D', 'E'].map((label) => ({ label }));
     const result = await tool.execute({ question: '选哪个？', options }, ctxWith(vi.fn()));
     expect(result.success).toBe(false);
-    expect(result.error).toContain('2-4');
+    expect(result.error).toContain('参数校验失败');
+    expect(result.error).toContain('/options');
   });
 
   it('options 非数组返回 error', async () => {
     const result = await tool.execute({ question: '选哪个？', options: 'A,B' }, ctxWith(vi.fn()));
     expect(result.success).toBe(false);
-    expect(result.error).toContain('数组');
+    expect(result.error).toContain('参数校验失败');
+    expect(result.error).toContain('/options');
   });
 
   it('option.label 空白返回 error 并指明下标', async () => {
@@ -130,16 +134,12 @@ describe('请求透传', () => {
     expect(captured[0]).toEqual({ question: '你的偏好？', options: undefined, allowMultiple: false });
   });
 
-  it('options 为空数组等价于省略', async () => {
-    const captured: UserInputRequest[] = [];
-    const onAsk: UserInputCallback = async (request) => {
-      captured.push(request);
-      return { text: '自定义回答' };
-    };
-
-    await tool.execute({ question: '你的偏好？', options: [] }, ctxWith(onAsk));
-
-    expect(captured[0].options).toBeUndefined();
+  it('options 为空数组返回 error（schema minItems 收紧，不再等价省略）', async () => {
+    const onAsk = vi.fn();
+    const result = await tool.execute({ question: '选哪个？', options: [] }, ctxWith(onAsk));
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('参数校验失败');
+    expect(onAsk).not.toHaveBeenCalled();
   });
 
   it('无 options 时 allowMultiple 恒为 false', async () => {

@@ -97,7 +97,9 @@ describe('URL 校验', () => {
     const mock = fetchMock();
     const result = await tool.execute({}, ctx);
     expect(result.success).toBe(false);
-    expect(result.error).toContain('[invalid]');
+    // 形状校验由基类 schema 层承担
+    expect(result.error).toContain('参数校验失败');
+    expect(result.error).toContain('url');
     expect(mock).not.toHaveBeenCalled();
   });
 
@@ -158,10 +160,19 @@ describe('参数校验与请求形态', () => {
     expect(mock).not.toHaveBeenCalled();
   });
 
-  it('超过上限时按 120000ms 截断', async () => {
+  it('超过上限报错且不发请求（范围由 schema 约束）', async () => {
+    const mock = stubFetch(async () => res({ body: 'ok' }));
+    const result = await tool.execute({ url: 'https://a.test', timeout_ms: 999_999 }, ctx);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('参数校验失败');
+    expect(result.error).toContain('/timeout_ms');
+    expect(mock).not.toHaveBeenCalled();
+  });
+
+  it('上限边界 120000ms 正常透传', async () => {
     const logger = new FakeLogger();
     stubFetch(async () => res({ body: 'ok' }));
-    await tool.execute({ url: 'https://a.test', timeout_ms: 999_999 }, { ...ctx, logger });
+    await tool.execute({ url: 'https://a.test', timeout_ms: 120_000 }, { ...ctx, logger });
     const requestLog = logger.logs.find((l) => l.message === 'web_fetch 请求');
     expect(requestLog?.context?.timeoutMs).toBe(120_000);
   });

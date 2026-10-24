@@ -14,18 +14,23 @@ describe('FinishTool', () => {
   it('空 summary 返回 error', async () => {
     const result = await tool.execute({ summary: '' }, mockContext);
     expect(result.success).toBe(false);
-    expect(result.error).toContain('非空');
+    // 形状校验由基类 schema 层承担，错误为结构化英文
+    expect(result.error).toContain('参数校验失败');
+    expect(result.error).toContain('/summary');
   });
 
   it('缺失 summary 返回 error', async () => {
     const result = await tool.execute({}, mockContext);
     expect(result.success).toBe(false);
-    expect(result.error).toContain('非空');
+    expect(result.error).toContain('参数校验失败');
+    expect(result.error).toContain('summary');
   });
 
   it('空白字符 summary 返回 error', async () => {
+    // trim 后空白属语义校验，由 run 内承担
     const result = await tool.execute({ summary: '   \n\t  ' }, mockContext);
     expect(result.success).toBe(false);
+    expect(result.error).toContain('非空');
   });
 
   it('工具元数据正确', () => {
