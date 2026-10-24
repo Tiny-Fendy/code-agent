@@ -6,21 +6,20 @@
   "scripts": {
     "dev": "pnpm run build:packages && pnpm --filter @code-agent/electron-main run dev",
     "build": "pnpm run build:packages && pnpm run build:electron",
-    "build:packages": "pnpm run build:rpc && pnpm run build:contracts && pnpm run build:agent",
+    "build:packages": "pnpm run build:rpc && pnpm run build:contracts && pnpm run build:sse && pnpm run build:agent",
     "build:rpc": "pnpm --filter @code-agent/rpc run build",
     "build:contracts": "pnpm --filter @code-agent/contracts run build",
+    "build:sse": "pnpm --filter fetch-sse-client run build",
     "build:agent": "pnpm --filter @code-agent/agent-core run build",
     "build:electron": "pnpm --filter @code-agent/electron-main run build",
     "typecheck": "pnpm -r run typecheck"
   },
   "devDependencies": {
-    "typescript": "7.0.2"
+    "@types/node": "^24.0.0",
+    "typescript": "7.0.2",
+    "vitest": "^5.0.5"
   },
   "engines": {
     "node": ">=18.0.0"
-  },
-  "dependencies": {
-    "@types/node": "^20.11.0",
-    "electron": "44.0.0-beta.6"
   }
 }
