@@ -11,7 +11,7 @@
 
 | 职责 | 归属 | 说明 |
 |------|------|------|
-| 接入标准定义 | base.ts | Tool 接口 + BaseTool 抽象类 |
+| 接入标准定义 | base.ts | Tool 接口 + BaseTool 抽象类（含参数 schema 统一校验入口） |
 | 内置工具组装 | ToolManager 构造函数 | 唯一知道"有哪些内置工具"的地方 |
 | 自定义工具注册入口 | ToolManager.register / registerAll | 宿主环境注入扩展能力 |
 | Schema 导出 / 按名执行 / 确认查询 | ToolManager | 面向 Agent 的三个调度接口 |
@@ -21,16 +21,28 @@
 
 ## 3. 接入标准（领域知识）
 
-新工具接入只需继承 BaseTool 并声明四项元数据：
+新工具接入只需继承 `BaseTool<typeof 参数schema>` 并声明四项元数据：
 
 | 元数据 | 用途 |
 |--------|------|
 | name | LLM 调用名（kebab-case，全局唯一） |
 | description | 给 LLM 的能力描述 |
-| parameters | JSON Schema 参数定义 |
+| parameters | TypeBox schema——**参数的唯一事实来源**（见下方契约） |
 | requiresConfirmation | 是否高危（执行前需用户确认） |
 
-BaseTool 统一提供：`toDefinition()` 生成 Function Calling schema、`success()` / `error()` 统一 ToolResult 形态。工具的 execute 接收 `(args, toolContext)`，toolContext 携带 projectPath 等环境信息。
+### 参数契约（schema 同源）
+
+每个工具的参数以模块级 TypeBox schema 为唯一事实来源，一份定义三处消费：
+
+- **发给 LLM**：schema 运行时就是 JSON Schema（draft-07 风格），`toDefinition()` 原样透传
+- **编译期类型**：`run` 的参数类型写作 `Type.Static<typeof schema>`，与 schema 由同一泛型推出，编译器强制同源
+- **运行时校验**：`BaseTool.execute` 统一入口——惰性编译 `Validator` 缓存 → `Check` 快速路径 → 失败时 `Errors` 拼结构化错误（`参数校验失败: /path: message`）回灌 LLM
+
+子类只实现 `protected abstract run(params, context)`，**不得覆写 `execute`**——「run 拿到的参数已校验」由基类保证。
+
+**校验分工**：形状（类型/必填/枚举/范围）一律进 schema；schema 表达不了的语义（trim 后空白、`new URL()` 可解析性、协议白名单、PathGuard 越界、跨字段约束）留在 `run` 内。不做 coercion——LLM 传错形状就报错回灌，让模型自我修正。
+
+BaseTool 统一提供：`toDefinition()` 生成 Function Calling schema、`success()` / `error()` 统一 ToolResult 形态。run 接收 `(params, toolContext)`，toolContext 携带 projectPath 等环境信息。
 
 **新增内置工具的流程：写工具类 → ToolManager 组装点加一行。Agent 永远不用改。**
 
@@ -62,6 +74,10 @@ Agent：把 ToolResult 以 role='tool' 消息回灌上下文
 
 | 决策 | 理由 |
 |------|------|
+| 参数 schema 用 TypeBox 作唯一事实来源 | schema 运行时即 JSON Schema 可直接发 LLM，`Type.Static` 同源推导编译期类型；一份定义消除 schema 与参数类型的双写漂移 |
+| 参数校验收敛到 BaseTool.execute，子类只实现 run | 「run 拿到的参数已校验」由基类保证；消除 9 个工具各自的参数 as 断言与重复形状校验 |
+| 校验错误保留结构化英文，不做中文翻译层 | 消费者是 LLM（ToolResult 回灌）与开发者日志；结构化英文 + instancePath 更精确、省 token |
+| 形状进 schema、语义留 run，不做 coercion | 类型/必填/枚举/范围由 schema 表达；trim 空白、URL 可解析性、PathGuard 越界等语义留 run；LLM 传错形状就报错回灌，让模型自我修正 |
 | 工具内置在 agent-core 包内，不抽独立包 | 所有运行环境都有 Node.js；工具是 Agent 的核心能力而非可选插件；避免多一层包间依赖与构建顺序 |
 | 注册组装内聚 ToolManager，Agent 零工具依赖 | Agent 只依赖 Tool 抽象；加工具/宿主注入自定义工具均不动 Agent |
 | 不用装饰器 / DI 容器做注册 | 规模（个位数工具）不需要自动发现；esbuild 管线会擦除装饰器元数据；显式组装点 > 隐式魔法，与学习项目目标一致 |
@@ -94,3 +110,4 @@ Agent：把 ToolResult 以 role='tool' 消息回灌上下文
 | 2026-10-16 | finish 工具落地：第 7 个内置工具，LLM 显式调用结束任务循环；`@/` 别名配置统一测试导入路径 | `changes/003-finish-tool/` |
 | 2026-10-21 | ask_user 工具落地：第 8 个内置工具，经 `ToolContext.requestUserInput` 向宿主请求用户选择/输入；支持单选、多选、自由文本；未接入能力时降级为错误观察 | `changes/007-ask-user-tool/` |
 | 2026-10-23 | web_fetch 工具落地：第 9 个内置工具，Agent 首次具备出网能力；仅 GET、参数 url/format/timeout_ms、format 三档（turndown 转 Markdown）、5 MiB + 10000 字符双层截断、每次调用确认；设计对标 Claude Code `WebFetch` 与 opencode `webfetch` | `changes/008-web-fetch-tool/` |
+| 2026-10-24 | 工具参数契约重构：引入 typebox，BaseTool 泛型化（schema 同源 + 校验收敛到 execute），9 个内置工具全量迁移，消除全部参数 as 断言；行为收紧点：run_command/web_fetch 的 timeout_ms 超上限从截断变报错、ask_user 空数组 options 从省略变报错 | `changes/009-tool-schema-typebox/` |
