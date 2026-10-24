@@ -8,28 +8,22 @@
  * 安全设计：自动创建父目录（mkdir -p），但仍需 PathGuard 校验不逃逸出项目。
  */
 
+import Type from 'typebox';
 import { BaseTool } from '../base.js';
 import type { ToolResult, ToolContext } from '@code-agent/contracts';
 import { PathGuard, PathGuardError } from '../support/PathGuard.js';
 import { FsService } from '../support/FsService.js';
 
-export class WriteFileTool extends BaseTool {
+/** 参数 schema：唯一事实来源 */
+const writeFileParams = Type.Object({
+  file_path: Type.String({ minLength: 1, description: '相对项目根目录的文件路径' }),
+  content: Type.String({ description: '要写入的文件内容' }),
+});
+
+export class WriteFileTool extends BaseTool<typeof writeFileParams> {
   name = 'write_file';
   description = '创建新文件或完全覆盖已有文件。会自动创建不存在的父目录。';
-  parameters = {
-    type: 'object',
-    properties: {
-      file_path: {
-        type: 'string',
-        description: '相对项目根目录的文件路径',
-      },
-      content: {
-        type: 'string',
-        description: '要写入的文件内容',
-      },
-    },
-    required: ['file_path', 'content'],
-  };
+  readonly parameters = writeFileParams;
   /** 整文件覆盖是高危操作，必须用户确认 */
   requiresConfirmation = true;
 
@@ -44,16 +38,11 @@ export class WriteFileTool extends BaseTool {
     this.fsService = new FsService(projectPath);
   }
 
-  async execute(params: Record<string, any>, _context: ToolContext): Promise<ToolResult> {
-    const filePath = params.file_path as string;
-    const content = params.content as string;
-
-    if (!filePath) {
-      return this.error('file_path 参数不能为空');
-    }
-    if (content === undefined) {
-      return this.error('content 参数不能为空');
-    }
+  protected async run(
+    params: Type.Static<typeof writeFileParams>,
+    _context: ToolContext,
+  ): Promise<ToolResult> {
+    const { file_path: filePath, content } = params;
 
     // 校验路径
     let absPath: string;

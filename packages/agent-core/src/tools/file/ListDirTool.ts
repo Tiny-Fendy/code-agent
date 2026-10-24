@@ -5,28 +5,30 @@
  * 避免 node_modules 等噪音目录撑爆上下文。
  */
 
+import Type from 'typebox';
 import { BaseTool } from '../base.js';
 import type { ToolResult, ToolContext } from '@code-agent/contracts';
 import { PathGuard, PathGuardError } from '../support/PathGuard.js';
 import { FsService, FILE_CONFIG, type DirEntry } from '../support/FsService.js';
 import { GitIgnoreFilter } from '../support/GitIgnoreFilter.js';
 
-export class ListDirTool extends BaseTool {
+/** 参数 schema：唯一事实来源 */
+const listDirParams = Type.Object({
+  dir_path: Type.Optional(
+    Type.String({ description: '相对项目根目录的目录路径，不传则列出项目根目录' }),
+  ),
+  max_depth: Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      description: `递归深度，默认 ${FILE_CONFIG.DEFAULT_LIST_DEPTH}，最大 ${FILE_CONFIG.MAX_LIST_DEPTH}`,
+    }),
+  ),
+});
+
+export class ListDirTool extends BaseTool<typeof listDirParams> {
   name = 'list_dir';
   description = '列出指定目录下的文件和子目录。不传参数时列出项目根目录。';
-  parameters = {
-    type: 'object',
-    properties: {
-      dir_path: {
-        type: 'string',
-        description: '相对项目根目录的目录路径，不传则列出项目根目录',
-      },
-      max_depth: {
-        type: 'number',
-        description: `递归深度，默认 ${FILE_CONFIG.DEFAULT_LIST_DEPTH}，最大 ${FILE_CONFIG.MAX_LIST_DEPTH}`,
-      },
-    },
-  };
+  readonly parameters = listDirParams;
   requiresConfirmation = false;
 
   /** 路径安全校验（防逃逸、防符号链接穿越） */
@@ -46,9 +48,12 @@ export class ListDirTool extends BaseTool {
     this.gitIgnore.load();
   }
 
-  async execute(params: Record<string, any>, _context: ToolContext): Promise<ToolResult> {
-    const dirPath = (params.dir_path as string) || '.';
-    const maxDepth = (params.max_depth as number) ?? FILE_CONFIG.DEFAULT_LIST_DEPTH;
+  protected async run(
+    params: Type.Static<typeof listDirParams>,
+    _context: ToolContext,
+  ): Promise<ToolResult> {
+    const dirPath = params.dir_path || '.';
+    const maxDepth = params.max_depth ?? FILE_CONFIG.DEFAULT_LIST_DEPTH;
 
     // 校验路径
     let absPath: string;

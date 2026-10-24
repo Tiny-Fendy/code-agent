@@ -9,32 +9,27 @@
  * - 超过 max_results 时尾部提示截断，防止回灌内容撑爆上下文
  */
 
+import Type from 'typebox';
 import { BaseTool } from '../base.js';
 import type { ToolResult, ToolContext } from '@code-agent/contracts';
 import { PathGuard, PathGuardError } from '../support/PathGuard.js';
 import { FsService, FILE_CONFIG } from '../support/FsService.js';
 
-export class SearchByRegexTool extends BaseTool {
+/** 参数 schema：唯一事实来源 */
+const searchByRegexParams = Type.Object({
+  pattern: Type.String({ minLength: 1, description: '正则表达式模式' }),
+  search_path: Type.Optional(
+    Type.String({ description: '搜索的子目录（相对项目根目录），默认搜索整个项目' }),
+  ),
+  max_results: Type.Optional(
+    Type.Integer({ minimum: 1, description: `最大返回结果数，默认 ${FILE_CONFIG.MAX_SEARCH_RESULTS}` }),
+  ),
+});
+
+export class SearchByRegexTool extends BaseTool<typeof searchByRegexParams> {
   name = 'search_by_regex';
   description = '在项目中搜索匹配正则表达式的内容。返回文件路径、行号和匹配行。';
-  parameters = {
-    type: 'object',
-    properties: {
-      pattern: {
-        type: 'string',
-        description: '正则表达式模式',
-      },
-      search_path: {
-        type: 'string',
-        description: '搜索的子目录（相对项目根目录），默认搜索整个项目',
-      },
-      max_results: {
-        type: 'number',
-        description: `最大返回结果数，默认 ${FILE_CONFIG.MAX_SEARCH_RESULTS}`,
-      },
-    },
-    required: ['pattern'],
-  };
+  readonly parameters = searchByRegexParams;
   requiresConfirmation = false;
 
   /** 路径安全校验（防逃逸、防符号链接穿越） */
@@ -48,16 +43,15 @@ export class SearchByRegexTool extends BaseTool {
     this.fsService = new FsService(projectPath);
   }
 
-  async execute(params: Record<string, any>, _context: ToolContext): Promise<ToolResult> {
-    const pattern = params.pattern as string;
-    const searchPath = (params.search_path as string) || '.';
-    const maxResults = (params.max_results as number) ?? FILE_CONFIG.MAX_SEARCH_RESULTS;
+  protected async run(
+    params: Type.Static<typeof searchByRegexParams>,
+    _context: ToolContext,
+  ): Promise<ToolResult> {
+    const { pattern } = params;
+    const searchPath = params.search_path || '.';
+    const maxResults = params.max_results ?? FILE_CONFIG.MAX_SEARCH_RESULTS;
 
-    if (!pattern) {
-      return this.error('pattern 参数不能为空');
-    }
-
-    // 编译正则
+    // 编译正则（语义校验：正则合法性无法由 schema 表达）
     let regex: RegExp;
     try {
       regex = new RegExp(pattern);

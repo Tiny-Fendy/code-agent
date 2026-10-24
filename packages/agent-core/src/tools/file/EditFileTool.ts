@@ -10,38 +10,28 @@
  * - requiresConfirmation=true：文件编辑是高危操作，必须用户确认。
  */
 
+import Type from 'typebox';
 import { BaseTool } from '../base.js';
 import type { ToolResult, ToolContext } from '@code-agent/contracts';
 import { PathGuard, PathGuardError } from '../support/PathGuard.js';
 import { FsService } from '../support/FsService.js';
 
-export class EditFileTool extends BaseTool {
+/** 参数 schema：唯一事实来源 */
+const editFileParams = Type.Object({
+  file_path: Type.String({ minLength: 1, description: '相对项目根目录的文件路径' }),
+  old_string: Type.String({ minLength: 1, description: '要搜索替换的原始字符串' }),
+  new_string: Type.String({ description: '替换后的新字符串' }),
+  replace_all: Type.Optional(
+    Type.Boolean({ description: '是否替换所有匹配项，默认 false（只替换第一个）' }),
+  ),
+});
+
+export class EditFileTool extends BaseTool<typeof editFileParams> {
   name = 'edit_file';
   description =
     '通过搜索替换的方式编辑文件。提供要替换的原始字符串 (old_string) 和新字符串 (new_string)。' +
     '如果 old_string 有多处匹配，需要设置 replace_all=true。';
-  parameters = {
-    type: 'object',
-    properties: {
-      file_path: {
-        type: 'string',
-        description: '相对项目根目录的文件路径',
-      },
-      old_string: {
-        type: 'string',
-        description: '要搜索替换的原始字符串',
-      },
-      new_string: {
-        type: 'string',
-        description: '替换后的新字符串',
-      },
-      replace_all: {
-        type: 'boolean',
-        description: '是否替换所有匹配项，默认 false（只替换第一个）',
-      },
-    },
-    required: ['file_path', 'old_string', 'new_string'],
-  };
+  readonly parameters = editFileParams;
   requiresConfirmation = true;
 
   /** 路径安全校验（防逃逸、防符号链接穿越） */
@@ -55,15 +45,12 @@ export class EditFileTool extends BaseTool {
     this.fsService = new FsService(projectPath);
   }
 
-  async execute(params: Record<string, any>, _context: ToolContext): Promise<ToolResult> {
-    const filePath = params.file_path as string;
-    const oldString = params.old_string as string;
-    const newString = params.new_string as string;
-    const replaceAll = (params.replace_all as boolean) ?? false;
-
-    if (!filePath) return this.error('file_path 参数不能为空');
-    if (!oldString) return this.error('old_string 参数不能为空');
-    if (newString === undefined) return this.error('new_string 参数不能为空');
+  protected async run(
+    params: Type.Static<typeof editFileParams>,
+    _context: ToolContext,
+  ): Promise<ToolResult> {
+    const { file_path: filePath, old_string: oldString, new_string: newString } = params;
+    const replaceAll = params.replace_all ?? false;
 
     // 校验路径
     let absPath: string;
@@ -119,7 +106,6 @@ export class EditFileTool extends BaseTool {
 
   /** 统计字符串出现次数 */
   private countOccurrences(haystack: string, needle: string): number {
-    if (!needle) return 0;
     let count = 0;
     let pos = 0;
     while ((pos = haystack.indexOf(needle, pos)) !== -1) {

@@ -7,32 +7,25 @@
  * - 返回结果带行号，方便后续 edit_file 定位
  */
 
+import Type from 'typebox';
 import { BaseTool } from '../base.js';
 import type { ToolResult, ToolContext } from '@code-agent/contracts';
 import { PathGuard, PathGuardError } from '../support/PathGuard.js';
 import { FsService, FILE_CONFIG } from '../support/FsService.js';
 
-export class ReadFileTool extends BaseTool {
+/** 参数 schema：唯一事实来源（发 LLM 的 JSON Schema、run 参数类型、运行时校验共用） */
+const readFileParams = Type.Object({
+  file_path: Type.String({ minLength: 1, description: '相对项目根目录的文件路径' }),
+  offset: Type.Optional(
+    Type.Integer({ minimum: 1, description: '起始行号（从 1 开始），默认从第 1 行开始' }),
+  ),
+  limit: Type.Optional(Type.Integer({ minimum: 1, description: '读取行数，默认读取全部' })),
+});
+
+export class ReadFileTool extends BaseTool<typeof readFileParams> {
   name = 'read_file';
   description = '读取文件内容并显示行号。大文件需要分段读取。';
-  parameters = {
-    type: 'object',
-    properties: {
-      file_path: {
-        type: 'string',
-        description: '相对项目根目录的文件路径',
-      },
-      offset: {
-        type: 'number',
-        description: '起始行号（从 1 开始），默认从第 1 行开始',
-      },
-      limit: {
-        type: 'number',
-        description: '读取行数，默认读取全部',
-      },
-    },
-    required: ['file_path'],
-  };
+  readonly parameters = readFileParams;
   requiresConfirmation = false;
 
   /** 路径安全校验（防逃逸、防符号链接穿越） */
@@ -46,16 +39,13 @@ export class ReadFileTool extends BaseTool {
     this.fsService = new FsService(projectPath);
   }
 
-  async execute(params: Record<string, any>, _context: ToolContext): Promise<ToolResult> {
-    const filePath = params.file_path as string;
-    const offset = params.offset as number | undefined;
-    const limit = params.limit as number | undefined;
+  protected async run(
+    params: Type.Static<typeof readFileParams>,
+    _context: ToolContext,
+  ): Promise<ToolResult> {
+    const { file_path: filePath, offset, limit } = params;
 
-    if (!filePath) {
-      return this.error('file_path 参数不能为空');
-    }
-
-    // 校验路径
+    // 校验路径（语义校验：依赖运行时项目根，保留在 run 内）
     let absPath: string;
     try {
       absPath = await this.pathGuard.resolveAndValidate(filePath);

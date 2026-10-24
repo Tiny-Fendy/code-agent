@@ -13,6 +13,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import Type from 'typebox';
 import { BaseTool } from '../base.js';
 import type { ToolResult, ToolContext } from '@code-agent/contracts';
 import { PathGuard, PathGuardError } from '../support/PathGuard.js';
@@ -26,31 +27,29 @@ const MAX_TIMEOUT_MS = 300_000;
 /** SIGTERM 后强杀的宽限期（毫秒） */
 const KILL_GRACE_MS = 3_000;
 
-export class RunCommandTool extends BaseTool {
+/** 参数 schema：唯一事实来源 */
+const runCommandParams = Type.Object({
+  command: Type.String({ minLength: 1, description: '要执行的 Shell 命令' }),
+  cwd: Type.Optional(
+    Type.String({ description: '工作目录，相对项目根目录。不填默认为项目根目录' }),
+  ),
+  timeout_ms: Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      maximum: MAX_TIMEOUT_MS,
+      description: `超时时间（毫秒），默认 ${DEFAULT_TIMEOUT_MS}，最大 ${MAX_TIMEOUT_MS}`,
+    }),
+  ),
+});
+
+export class RunCommandTool extends BaseTool<typeof runCommandParams> {
   name = 'run_command';
   description = `在项目目录内执行 Shell 命令并返回输出。适用于：运行测试、安装依赖、git 操作、构建项目等。
 注意：
 1. 每次执行相互独立，cd / export 等状态不会保留，需要用 cwd 参数或组合命令（如 "cd dir && cmd"）
 2. 长时间运行的常驻进程（如 dev server）会在超时后被终止，请改用可退出的命令
 3. 优先使用非交互式命令，避免需要用户输入的场景`;
-  parameters = {
-    type: 'object',
-    properties: {
-      command: {
-        type: 'string',
-        description: '要执行的 Shell 命令',
-      },
-      cwd: {
-        type: 'string',
-        description: '工作目录，相对项目根目录。不填默认为项目根目录',
-      },
-      timeout_ms: {
-        type: 'number',
-        description: `超时时间（毫秒），默认 ${DEFAULT_TIMEOUT_MS}，最大 ${MAX_TIMEOUT_MS}`,
-      },
-    },
-    required: ['command'],
-  };
+  readonly parameters = runCommandParams;
   requiresConfirmation = true;
 
   private pathGuard: PathGuard;
@@ -60,28 +59,24 @@ export class RunCommandTool extends BaseTool {
     this.pathGuard = new PathGuard(projectPath);
   }
 
-  async execute(params: Record<string, any>, _context: ToolContext): Promise<ToolResult> {
-    const command = params.command as string;
+  protected async run(
+    params: Type.Static<typeof runCommandParams>,
+    _context: ToolContext,
+  ): Promise<ToolResult> {
+    const { command } = params;
 
-    if (!command || typeof command !== 'string' || !command.trim()) {
+    // 语义校验：trim 后空白（schema 的 minLength 不 trim）
+    if (!command.trim()) {
       return this.error('command 参数不能为空');
     }
 
-    // 校验超时参数
-    let timeoutMs = DEFAULT_TIMEOUT_MS;
-    if (params.timeout_ms !== undefined) {
-      const t = Number(params.timeout_ms);
-      if (!Number.isFinite(t) || t <= 0) {
-        return this.error('timeout_ms 必须是正数');
-      }
-      timeoutMs = Math.min(t, MAX_TIMEOUT_MS);
-    }
+    const timeoutMs = params.timeout_ms ?? DEFAULT_TIMEOUT_MS;
 
     // 校验工作目录，防止 cd 逃逸出项目
     let cwd = this.pathGuard.getProjectRoot();
     if (params.cwd) {
       try {
-        cwd = await this.pathGuard.resolveAndValidate(params.cwd as string);
+        cwd = await this.pathGuard.resolveAndValidate(params.cwd);
       } catch (err) {
         return this.error(
           err instanceof PathGuardError
