@@ -79,7 +79,9 @@ function createHarness(scriptFor?: (agent: FakeAgent) => Script) {
   const config = { value: structuredClone(APP_CONFIG) };
   const workspace = { projectPath: '/tmp/project' as string | null };
   const agents: FakeAgent[] = [];
-  const factory: AgentFactory = (_config, _projectPath, options) => {
+  const factoryArgs: Array<{ config: unknown; projectPath: string; options: AgentOptions }> = [];
+  const factory: AgentFactory = (agentConfig, projectPath, options) => {
+    factoryArgs.push({ config: agentConfig, projectPath, options });
     const agent = new FakeAgent(options);
     if (scriptFor) agent.script = scriptFor(agent);
     agents.push(agent);
@@ -91,7 +93,7 @@ function createHarness(scriptFor?: (agent: FakeAgent) => Script) {
     new FakeLogger(),
     factory,
   );
-  return { session, config, workspace, agents };
+  return { session, config, workspace, agents, factoryArgs };
 }
 
 async function collect(gen: AsyncGenerator<AgentEvent, SendResult>): Promise<{
@@ -259,6 +261,16 @@ describe('ChatSession 会话保持', () => {
     await collect(gen);
 
     await expect(collect(h.session.start('three'))).resolves.toBeDefined();
+  });
+
+  it('以当前配置快照、项目路径与确认回调创建 Agent', async () => {
+    const h = createHarness();
+    await collect(h.session.start('one'));
+
+    expect(h.factoryArgs).toHaveLength(1);
+    expect(h.factoryArgs[0].config).toEqual(APP_CONFIG.api);
+    expect(h.factoryArgs[0].projectPath).toBe('/tmp/project');
+    expect(h.factoryArgs[0].options.onConfirm).toBeTypeOf('function');
   });
 
   it('生成器返回值原样透传', async () => {
