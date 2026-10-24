@@ -1,57 +1,65 @@
 /**
- * ChatService 实现：Agent ↔ RPC 的适配层
+ * ChatService 实现：会话 ↔ RPC 的适配层
  *
- * 取消桥接（设计 4.3）：
- *   渲染层 stream.abort()
- *     → invoke('__stream', 'cancel')
- *     → Router 终止泵并触发句柄 onAbort 钩子
- *     → agent.abort()（Agent 循环在下一个检查点停止）
+ * 会话保持与确认门控在 ChatSession 中实现（见 openspec/changes/003-chat-session），
+ * 本层只负责：
+ * - 创建 RPC 流并桥接取消：句柄 abort → session.abort()
+ * - 把忙锁异常翻译为带业务码的失败终局（chat.BUSY）
+ * - 把 confirmTool 决议投递给会话
  */
 
 import { Agent } from '@code-agent/agent-core';
 import type { AgentEvent, ChatService, Logger, SendResult } from '@code-agent/contracts';
 import type { RpcStream } from '@code-agent/rpc/protocol';
 import { createRpcStream } from '@code-agent/rpc/main';
+import { ChatSession, ChatSessionBusyError } from './ChatSession';
 import type { ConfigServiceImpl } from './ConfigServiceImpl';
 import type { WorkspaceState } from './WorkspaceState';
+
+/** 业务错误码（服务前缀命名，见 systems/rpc-communication.md §5） */
+const CHAT_ERROR_BUSY = 'chat.BUSY';
 
 export class ChatServiceImpl implements ChatService {
   /** 服务注册名（契约 ServiceDef 显式声明，Router.registerAll 读取） */
   readonly serviceName = 'chat' as const;
 
+  private readonly session: ChatSession;
+
   constructor(
-    private readonly config: ConfigServiceImpl,
-    private readonly workspace: WorkspaceState,
-    private readonly logger: Logger,
-  ) {}
-
-  send(_message: string): RpcStream<AgentEvent, SendResult> {
-    const appConfig = this.config.getCached();
-
-    // AppConfig → AgentConfig 显式映射
-    const agent = new Agent(
-      {
-        apiKey: appConfig.api.apiKey,
-        baseUrl: appConfig.api.baseUrl,
-        model: appConfig.api.model,
-        temperature: appConfig.api.temperature,
-        maxTokens: appConfig.api.maxTokens,
-      },
-      // 未打开项目时退化为当前工作目录
-      this.workspace.projectPath ?? process.cwd(),
-      // options 对象形式（logging/design D4）：后续 onConfirm 接线也走这里
-      { logger: this.logger },
+    config: ConfigServiceImpl,
+    workspace: WorkspaceState,
+    logger: Logger,
+  ) {
+    this.session = new ChatSession(
+      config,
+      workspace,
+      logger,
+      (agentConfig, projectPath, options) => new Agent(agentConfig, projectPath, options),
     );
+  }
+
+  send(message: string): RpcStream<AgentEvent, SendResult> {
+    let generator: AsyncGenerator<AgentEvent, SendResult>;
+    try {
+      generator = this.session.start(message);
+    } catch (err) {
+      // 忙锁用失败流承载业务码；直接 throw 会被 Router 包成 RPC_HANDLER_ERROR
+      if (err instanceof ChatSessionBusyError) {
+        const failed = createRpcStream<AgentEvent, SendResult>();
+        failed.error({ code: CHAT_ERROR_BUSY, message: err.message });
+        return failed;
+      }
+      throw err;
+    }
 
     // 形态 B：拉模式包装，生成器 return 的 SendResult 即流终局结果
-    const stream = createRpcStream(agent.run(_message));
-    // 句柄 abort → Agent 中断
-    stream.onAbort(() => agent.abort());
+    const stream = createRpcStream(generator);
+    // 取消链路：先解除确认等待，再让引擎在检查点停止
+    stream.onAbort(() => this.session.abort());
     return stream;
   }
 
-  async confirmTool(_toolCallId: string, _ok: boolean): Promise<void> {
-    // Agent 当前自动执行全部工具，tool_call_confirm 确认门控尚未在引擎落地；
-    // 预留契约入口，待 agent-core 支持挂起等待确认后在此回传结果。
+  async confirmTool(toolCallId: string, ok: boolean): Promise<void> {
+    this.session.confirm(toolCallId, ok);
   }
 }
