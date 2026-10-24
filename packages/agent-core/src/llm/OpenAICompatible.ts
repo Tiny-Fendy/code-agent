@@ -125,7 +125,13 @@ export class OpenAICompatibleProvider extends LLMProvider {
     client.on('done', () => push({ terminal: 'done' }));
     client.on('error', (err) => push({ terminal: 'error', error: err }));
 
+    // ---- 外部取消：signal 触发即 client.abort()，立即中断在途请求 ----
+    const onExternalAbort = () => client.abort();
+    params.signal?.addEventListener('abort', onExternalAbort, { once: true });
+
     client.start();
+    // 竞态兜底：信号先于注册触发时 listener 不会再 fire
+    if (params.signal?.aborted) client.abort();
 
     try {
       while (true) {
@@ -153,6 +159,7 @@ export class OpenAICompatibleProvider extends LLMProvider {
     } finally {
       // 生成器提前终止（break / return / Agent abort）时释放连接；
       // 流已终结（closed 态）时为 no-op，天然安全
+      params.signal?.removeEventListener('abort', onExternalAbort);
       client.abort();
     }
   }

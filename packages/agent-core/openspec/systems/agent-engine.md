@@ -48,7 +48,7 @@ Agent 是整个引擎的编排中枢，实现 ReAct（Reasoning + Acting）循�
 
 ### 3.3 中断机制
 
-`abort()` 设置中断标志，在四个检查点生效：循环顶部、LLM 流读取中、工具执行间、确认回调返回后。中断统一以 `done(aborted)` 收尾，不抛异常。
+`abort()` 设置中断标志并触发 run 级 AbortController：在途 LLM 请求（含压缩摘要请求）被立即中断，不等流事件到达；标志位在四个检查点生效：循环顶部、LLM 流读取中、工具执行间、确认回调返回后。中断统一以 `done(aborted)` 收尾，不抛异常。
 
 ### 3.4 工具确认流
 
@@ -102,3 +102,4 @@ Agent 是整个引擎的编排中枢，实现 ReAct（Reasoning + Acting）循�
 |------|------|
 | 2026-10-14 | 初版补录：ReAct 循环、事件流契约、中断机制、工具确认流、压缩编排（均已落地实现） |
 | 2026-10-16 | finish 工具接入：循环内检测 finish 调用后 return { status: 'finished', summary } 退出；系统提示词追加 finish 使用引导 |
+| 2026-10-24 | abort 链路补全：`ChatCompletionParams.signal` 贯通到 SSEClient，abort() 立即中断在途 LLM 请求（此前仅标志位，流挂起时需等下一个事件才生效） |

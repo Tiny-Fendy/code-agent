@@ -251,6 +251,43 @@ describe('chunk 过滤与资源释放', () => {
     expect(capturedSignal).toBeDefined();
     expect(capturedSignal!.aborted).toBe(true);
   });
+
+  it('外部 signal abort → 在途请求立即中断，生成器随之终结', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    // 挂起流：推送一条后不再产出（模拟长思考停顿）；
+    // 按真实 fetch 语义把流与 signal 联动——abort 时 body 读取报错
+    const fetchMock = vi.fn(async (_url: unknown, init?: { signal?: AbortSignal }) => {
+      capturedSignal = init?.signal;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(sseData({ content: '你' })));
+          init?.signal?.addEventListener('abort', () => {
+            controller.error(new DOMException('The operation was aborted', 'AbortError'));
+          });
+        },
+      });
+      return new Response(stream, { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const controller = new AbortController();
+    const gen = provider().chat({ ...baseParams, signal: controller.signal });
+    const first = await gen.next();
+    expect(first.done).toBe(false);
+
+    controller.abort();
+
+    // 不等下一个流事件，fetch 连接被立即中断
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(capturedSignal).toBeDefined();
+    expect(capturedSignal!.aborted).toBe(true);
+
+    // done 哨兵唤醒生成器：已有累积内容 → MessageComplete 兜底，随后终结
+    const second = await gen.next();
+    expect(second.done).toBe(false);
+    expect(second.value.type).toBe(LLMEventType.MessageComplete);
+    expect((await gen.next()).done).toBe(true);
+  });
 });
 
 describe('请求组装（映射保持现状）', () => {

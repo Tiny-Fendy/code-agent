@@ -106,6 +106,8 @@ export class Agent {
   private toolContext: ToolContext;
   private maxSteps: number;
   private aborted = false;
+  /** 当前 run 的取消源：abort() 时立即中断在途 LLM 请求（含压缩摘要请求），不等流事件到达 */
+  private runAbort: AbortController | null = null;
   /** 高危工具确认回调；未注入时自动放行（无 UI 场景） */
   private readonly onConfirm?: AgentOptions['onConfirm'];
   /** 开发者诊断日志；未注入时 NullLogger（库静默，与 AgentEvent 严格分离） */
@@ -163,6 +165,8 @@ export class Agent {
   /** ReAct 主循环（run 的执行体，开始/终局日志由外壳统一记录） */
   private async *runLoop(userMessage: string): AsyncGenerator<AgentEvent, SendResult> {
     this.aborted = false;
+    // 每个 run 独立取消源：abort() 即中断本 run 的全部在途 LLM 请求
+    this.runAbort = new AbortController();
 
     // 1. 添加用户消息到上下文
     this.contextManager.addMessage({
@@ -344,6 +348,7 @@ export class Agent {
       tools: tools.length > 0 ? tools : undefined,
       temperature: this.config.temperature,
       maxTokens: this.config.maxTokens,
+      signal: this.runAbort?.signal,
     });
 
     let completeMessage: ChatMessage | null = null;
@@ -422,6 +427,7 @@ export class Agent {
         ],
         temperature: 0,
         maxTokens: COMPACT_SUMMARY_MAX_TOKENS,
+        signal: this.runAbort?.signal,
       });
       for await (const event of stream) {
         if (this.aborted) return;
@@ -461,9 +467,10 @@ export class Agent {
     yield { type: 'context_compact', data: { before, after } };
   }
 
-  /** 中断当前执行 */
+  /** 中断当前执行：置标志位并立即中断在途 LLM 请求（流挂起时不等下一个事件） */
   abort(): void {
     this.aborted = true;
+    this.runAbort?.abort();
   }
 
   /** 获取对话历史 */

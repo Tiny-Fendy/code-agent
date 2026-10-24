@@ -14,6 +14,8 @@ export interface ChatCompletionParams {
   tools?: ToolDefinition[];
   temperature?: number;
   maxTokens?: number;
+  /** 外部取消信号：触发时立即中断在途请求（Agent abort 链路），不等流事件到达 */
+  signal?: AbortSignal;
 }
 
 /**

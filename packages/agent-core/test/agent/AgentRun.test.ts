@@ -220,6 +220,32 @@ describe('Agent.run 终局结果', () => {
     while (!r.done) r = await gen.next();
     expect(r.value).toEqual({ status: 'aborted' });
   });
+
+  it('中断：abort() 触发在途 chat 请求的取消信号（不等流事件到达）', async () => {
+    const provider = new FakeProvider(async function* () {
+      yield { type: 'text_delta', data: { delta: 'x' } };
+      // 挂起窗口：模拟长思考停顿，信号应在等待期间就触发
+      await new Promise((r) => setTimeout(r, 30));
+      yield { type: 'message_complete', data: { message: textMessage('不该到达') } };
+    });
+    const agent = new Agent(
+      { apiKey: 'fake', baseUrl: 'http://fake', model: 'fake', maxSteps: 10 },
+      process.cwd(),
+    );
+    (agent as unknown as { llm: LLMProvider }).llm = provider;
+
+    const gen = agent.run('hi');
+    await gen.next(); // text_delta
+
+    agent.abort();
+
+    // 取消信号随 abort() 立即触发，不等流事件
+    expect(provider.calls[0].signal?.aborted).toBe(true);
+
+    let r = await gen.next();
+    while (!r.done) r = await gen.next();
+    expect(r.value).toEqual({ status: 'aborted' });
+  });
 });
 
 describe('Agent.run 日志埋点（FakeLogger 注入）', () => {
