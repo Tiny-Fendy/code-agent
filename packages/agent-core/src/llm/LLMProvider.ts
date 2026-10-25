@@ -14,8 +14,6 @@ export interface ChatCompletionParams {
   tools?: ToolDefinition[];
   temperature?: number;
   maxTokens?: number;
-  /** 外部取消信号：触发时立即中断在途请求（Agent abort 链路），不等流事件到达 */
-  signal?: AbortSignal;
 }
 
 /**
@@ -38,6 +36,20 @@ export interface LLMEvent {
   data: any;
 }
 
+/**
+ * 一次 LLM 请求的句柄
+ *
+ * Provider 承担发送请求的能力，「取消」是请求与生俱来的基础能力，
+ * 随句柄一并返回（对照 EventSource.close()、SSEClient.abort()）。
+ * 按请求粒度持有，无共享可变状态，并发安全。
+ */
+export interface LLMRequest {
+  /** 事件流：逐步推送 LLM 事件，最后一定以 message_complete（或 error）收尾 */
+  events: AsyncGenerator<LLMEvent>;
+  /** 立即中断本次请求：释放连接并终结事件流（幂等；流已终结时为 no-op） */
+  abort(): void;
+}
+
 export abstract class LLMProvider {
   protected apiKey: string;
   protected baseUrl: string;
@@ -48,10 +60,10 @@ export abstract class LLMProvider {
   }
 
   /**
-   * 流式聊天补全
+   * 发起流式聊天补全，返回请求句柄。
    *
-   * 返回 AsyncGenerator，逐步推送 LLM 事件。
-   * 最后一定会推送一条 message_complete（或 error）事件。
+   * events 逐步推送 LLM 事件，最后一定会推送一条 message_complete（或 error）事件；
+   * abort() 立即中断在途请求。
    */
-  abstract chat(params: ChatCompletionParams): AsyncGenerator<LLMEvent>;
+  abstract chat(params: ChatCompletionParams): LLMRequest;
 }

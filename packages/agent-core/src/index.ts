@@ -35,7 +35,7 @@ export { RunCommandTool } from './tools/shell/index.js';
 // LLM
 export { LLMProvider, LLMEventType } from './llm/LLMProvider.js';
 export { OpenAICompatibleProvider } from './llm/OpenAICompatible.js';
-export type { ChatCompletionParams, LLMEvent } from './llm/LLMProvider.js';
+export type { ChatCompletionParams, LLMEvent, LLMRequest } from './llm/LLMProvider.js';
 
 // Mock LLM（开发态剧本驱动，见 openspec/changes/004-mock-provider）
 export { MockProvider, setMockProvider, clearMockProvider, mockEnabled } from './llm/MockProvider.js';

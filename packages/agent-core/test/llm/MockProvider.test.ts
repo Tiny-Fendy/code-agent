@@ -18,7 +18,7 @@ import {
 } from '../../src/llm/MockProvider';
 import { LLMEventType } from '../../src/llm/LLMProvider';
 import { OpenAICompatibleProvider } from '../../src/llm/OpenAICompatible';
-import type { ChatCompletionParams, LLMEvent } from '../../src/llm/LLMProvider';
+import type { ChatCompletionParams, LLMEvent, LLMRequest } from '../../src/llm/LLMProvider';
 import type { ChatMessage } from '@code-agent/contracts';
 
 afterEach(() => {
@@ -27,10 +27,10 @@ afterEach(() => {
   delete process.env.CODE_AGENT_MOCK_SCRIPT;
 });
 
-/** 收集事件流为类型数组 */
-async function collect(gen: AsyncGenerator<LLMEvent>): Promise<LLMEvent[]> {
+/** 收集请求的事件流为类型数组 */
+async function collect(request: LLMRequest): Promise<LLMEvent[]> {
   const events: LLMEvent[] = [];
-  for await (const event of gen) {
+  for await (const event of request.events) {
     events.push(event);
   }
   return events;

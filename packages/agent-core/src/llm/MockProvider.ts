@@ -21,6 +21,7 @@ import {
   LLMEventType,
   type ChatCompletionParams,
   type LLMEvent,
+  type LLMRequest,
 } from './LLMProvider.js';
 import type { ChatMessage } from '@code-agent/contracts';
 
@@ -72,7 +73,12 @@ export class MockProvider extends LLMProvider {
     return instance;
   }
 
-  async *chat(params: ChatCompletionParams): AsyncGenerator<LLMEvent> {
+  chat(params: ChatCompletionParams): LLMRequest {
+    // mock 无网络连接，abort 为空操作（句柄形态对齐真实 Provider）
+    return { events: this.streamEvents(params), abort: () => {} };
+  }
+
+  private async *streamEvents(params: ChatCompletionParams): AsyncGenerator<LLMEvent> {
     this.calls.push(params);
 
     if (this.brokenMessage) {
@@ -178,8 +184,8 @@ export function mockEnabled(): boolean {
   return explicitMock !== null || loadEnvMock() !== null;
 }
 
-/** 取当前 mock 单例的事件流（调用方须先经 mockEnabled() 判断） */
-export function mockStream(params: ChatCompletionParams): AsyncGenerator<LLMEvent> {
+/** 取当前 mock 单例的请求句柄（调用方须先经 mockEnabled() 判断） */
+export function mockRequest(params: ChatCompletionParams): LLMRequest {
   const provider = explicitMock ?? loadEnvMock();
   if (!provider) {
     // 防御分支：正常流程不会到达（mockEnabled 先行判断）

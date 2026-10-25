@@ -11,7 +11,7 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { OpenAICompatibleProvider } from '../../src/llm/OpenAICompatible';
-import { LLMEventType, type LLMEvent, type ChatCompletionParams } from '../../src/llm/LLMProvider';
+import { LLMEventType, type LLMEvent, type LLMRequest, type ChatCompletionParams } from '../../src/llm/LLMProvider';
 import type { ChatMessage } from '@code-agent/contracts';
 
 afterEach(() => {
@@ -48,10 +48,10 @@ function stubFetch(response: Response | Promise<Response>): ReturnType<typeof vi
   return fetchMock;
 }
 
-/** 收集事件流（完全消费） */
-async function collect(gen: AsyncGenerator<LLMEvent>): Promise<LLMEvent[]> {
+/** 收集请求的事件流（完全消费） */
+async function collect(request: LLMRequest): Promise<LLMEvent[]> {
   const events: LLMEvent[] = [];
-  for await (const e of gen) events.push(e);
+  for await (const e of request.events) events.push(e);
   return events;
 }
 
@@ -242,7 +242,7 @@ describe('chunk 过滤与资源释放', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const gen = provider().chat(baseParams);
+    const gen = provider().chat(baseParams).events;
     for await (const _event of gen) {
       break; // 消费第一个事件后立即终止
     }
@@ -252,7 +252,7 @@ describe('chunk 过滤与资源释放', () => {
     expect(capturedSignal!.aborted).toBe(true);
   });
 
-  it('外部 signal abort → 在途请求立即中断，生成器随之终结', async () => {
+  it('请求句柄 abort() → 在途请求立即中断，事件流随之终结', async () => {
     let capturedSignal: AbortSignal | undefined;
     // 挂起流：推送一条后不再产出（模拟长思考停顿）；
     // 按真实 fetch 语义把流与 signal 联动——abort 时 body 读取报错
@@ -270,12 +270,11 @@ describe('chunk 过滤与资源释放', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const controller = new AbortController();
-    const gen = provider().chat({ ...baseParams, signal: controller.signal });
-    const first = await gen.next();
+    const request = provider().chat(baseParams);
+    const first = await request.events.next();
     expect(first.done).toBe(false);
 
-    controller.abort();
+    request.abort();
 
     // 不等下一个流事件，fetch 连接被立即中断
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -283,10 +282,10 @@ describe('chunk 过滤与资源释放', () => {
     expect(capturedSignal!.aborted).toBe(true);
 
     // done 哨兵唤醒生成器：已有累积内容 → MessageComplete 兜底，随后终结
-    const second = await gen.next();
+    const second = await request.events.next();
     expect(second.done).toBe(false);
     expect(second.value.type).toBe(LLMEventType.MessageComplete);
-    expect((await gen.next()).done).toBe(true);
+    expect((await request.events.next()).done).toBe(true);
   });
 });
 

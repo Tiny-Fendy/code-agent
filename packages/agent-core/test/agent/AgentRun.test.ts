@@ -12,18 +12,25 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { Agent } from '../../src/agent/Agent';
-import { LLMProvider, type ChatCompletionParams, type LLMEvent } from '../../src/llm/LLMProvider';
+import { LLMProvider, type ChatCompletionParams, type LLMEvent, type LLMRequest } from '../../src/llm/LLMProvider';
 import type { AgentEvent, ChatMessage, SendResult, UserInputCallback } from '@code-agent/contracts';
 
-/** 假 LLM：每次 chat 调用都按脚本重新生成事件，并记录请求参数 */
+/** 假 LLM：每次 chat 调用都按脚本重新生成事件，并记录请求参数与 abort 调用 */
 class FakeProvider extends LLMProvider {
   readonly calls: ChatCompletionParams[] = [];
+  /** 请求句柄 abort() 的调用次数，供中断链路断言 */
+  abortCalls = 0;
   constructor(private readonly script: () => AsyncGenerator<LLMEvent>) {
     super('fake-key', 'http://fake');
   }
-  chat(params: ChatCompletionParams): AsyncGenerator<LLMEvent> {
+  chat(params: ChatCompletionParams): LLMRequest {
     this.calls.push(params);
-    return this.script();
+    return {
+      events: this.script(),
+      abort: () => {
+        this.abortCalls++;
+      },
+    };
   }
 }
 
@@ -221,10 +228,10 @@ describe('Agent.run 终局结果', () => {
     expect(r.value).toEqual({ status: 'aborted' });
   });
 
-  it('中断：abort() 触发在途 chat 请求的取消信号（不等流事件到达）', async () => {
+  it('中断：abort() 调用在途请求句柄的 abort()（不等流事件到达）', async () => {
     const provider = new FakeProvider(async function* () {
       yield { type: 'text_delta', data: { delta: 'x' } };
-      // 挂起窗口：模拟长思考停顿，信号应在等待期间就触发
+      // 挂起窗口：模拟长思考停顿，句柄 abort 应在等待期间就被调用
       await new Promise((r) => setTimeout(r, 30));
       yield { type: 'message_complete', data: { message: textMessage('不该到达') } };
     });
@@ -239,8 +246,8 @@ describe('Agent.run 终局结果', () => {
 
     agent.abort();
 
-    // 取消信号随 abort() 立即触发，不等流事件
-    expect(provider.calls[0].signal?.aborted).toBe(true);
+    // 在途请求句柄的 abort 随 Agent.abort() 立即调用，不等流事件
+    expect(provider.abortCalls).toBe(1);
 
     let r = await gen.next();
     while (!r.done) r = await gen.next();

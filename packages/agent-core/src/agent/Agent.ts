@@ -36,7 +36,7 @@ import type {
   ToolContext,
   ToolResult,
 } from '@code-agent/contracts';
-import { LLMProvider, LLMEventType } from '../llm/LLMProvider.js';
+import { LLMProvider, LLMEventType, type LLMRequest } from '../llm/LLMProvider.js';
 import { OpenAICompatibleProvider } from '../llm/OpenAICompatible.js';
 import { ToolManager } from '../tools/ToolManager.js';
 import { ToolEventBuilder } from './ToolEventBuilder.js';
@@ -106,8 +106,8 @@ export class Agent {
   private toolContext: ToolContext;
   private maxSteps: number;
   private aborted = false;
-  /** 当前 run 的取消源：abort() 时立即中断在途 LLM 请求（含压缩摘要请求），不等流事件到达 */
-  private runAbort: AbortController | null = null;
+  /** 在途 LLM 请求句柄（含压缩摘要请求）：abort() 时立即中断，不等流事件到达 */
+  private currentRequest: LLMRequest | null = null;
   /** 高危工具确认回调；未注入时自动放行（无 UI 场景） */
   private readonly onConfirm?: AgentOptions['onConfirm'];
   /** 开发者诊断日志；未注入时 NullLogger（库静默，与 AgentEvent 严格分离） */
@@ -165,8 +165,6 @@ export class Agent {
   /** ReAct 主循环（run 的执行体，开始/终局日志由外壳统一记录） */
   private async *runLoop(userMessage: string): AsyncGenerator<AgentEvent, SendResult> {
     this.aborted = false;
-    // 每个 run 独立取消源：abort() 即中断本 run 的全部在途 LLM 请求
-    this.runAbort = new AbortController();
 
     // 1. 添加用户消息到上下文
     this.contextManager.addMessage({
@@ -342,39 +340,43 @@ export class Agent {
     this.logger.debug('LLM 请求原文', { messages, tools });
 
     const startAt = Date.now();
-    const stream = this.llm.chat({
+    const request = this.llm.chat({
       model: this.config.model,
       messages,
       tools: tools.length > 0 ? tools : undefined,
       temperature: this.config.temperature,
       maxTokens: this.config.maxTokens,
-      signal: this.runAbort?.signal,
     });
+    this.currentRequest = request;
 
     let completeMessage: ChatMessage | null = null;
 
-    for await (const event of stream) {
-      if (this.aborted) break;
+    try {
+      for await (const event of request.events) {
+        if (this.aborted) break;
 
-      switch (event.type) {
-        case LLMEventType.TextDelta:
-          yield { type: 'text_delta', data: event.data };
-          break;
+        switch (event.type) {
+          case LLMEventType.TextDelta:
+            yield { type: 'text_delta', data: event.data };
+            break;
 
-        case LLMEventType.ToolCallDelta:
-          // 工具调用的增量也透传给 UI（可以实时展示）
-          yield { type: 'tool_call_delta', data: event.data };
-          break;
+          case LLMEventType.ToolCallDelta:
+            // 工具调用的增量也透传给 UI（可以实时展示）
+            yield { type: 'tool_call_delta', data: event.data };
+            break;
 
-        case LLMEventType.MessageComplete:
-          completeMessage = event.data.message;
-          break;
+          case LLMEventType.MessageComplete:
+            completeMessage = event.data.message;
+            break;
 
-        case LLMEventType.Error:
-          // LLM 失败不向外 yield 事件，原因随返回值带出
-          this.logger.error('LLM 调用失败', { error: event.data.message as string });
-          return { message: null, error: event.data.message as string };
+          case LLMEventType.Error:
+            // LLM 失败不向外 yield 事件，原因随返回值带出
+            this.logger.error('LLM 调用失败', { error: event.data.message as string });
+            return { message: null, error: event.data.message as string };
+        }
       }
+    } finally {
+      this.currentRequest = null;
     }
 
     if (completeMessage) {
@@ -418,18 +420,18 @@ export class Agent {
       .join('\n\n');
 
     let summary = '';
+    const request = this.llm.chat({
+      model: this.config.model,
+      messages: [
+        { role: 'system', content: COMPACT_PROMPT },
+        { role: 'user', content: transcript },
+      ],
+      temperature: 0,
+      maxTokens: COMPACT_SUMMARY_MAX_TOKENS,
+    });
+    this.currentRequest = request;
     try {
-      const stream = this.llm.chat({
-        model: this.config.model,
-        messages: [
-          { role: 'system', content: COMPACT_PROMPT },
-          { role: 'user', content: transcript },
-        ],
-        temperature: 0,
-        maxTokens: COMPACT_SUMMARY_MAX_TOKENS,
-        signal: this.runAbort?.signal,
-      });
-      for await (const event of stream) {
+      for await (const event of request.events) {
         if (this.aborted) return;
         if (event.type === LLMEventType.TextDelta) {
           summary += event.data.delta;
@@ -443,6 +445,8 @@ export class Agent {
     } catch {
       this.logger.warn('压缩摘要请求异常，跳过本轮压缩');
       return; // 网络/模型异常 → 跳过压缩，任务继续
+    } finally {
+      this.currentRequest = null;
     }
 
     summary = summary.trim();
@@ -467,10 +471,10 @@ export class Agent {
     yield { type: 'context_compact', data: { before, after } };
   }
 
-  /** 中断当前执行：置标志位并立即中断在途 LLM 请求（流挂起时不等下一个事件） */
+  /** 中断当前执行：置标志位并中断在途 LLM 请求（流挂起时不等下一个事件） */
   abort(): void {
     this.aborted = true;
-    this.runAbort?.abort();
+    this.currentRequest?.abort();
   }
 
   /** 获取对话历史 */

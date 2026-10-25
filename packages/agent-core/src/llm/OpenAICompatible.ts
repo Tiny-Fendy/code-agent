@@ -28,8 +28,9 @@ import {
   LLMEventType,
   type ChatCompletionParams,
   type LLMEvent,
+  type LLMRequest,
 } from './LLMProvider.js';
-import { mockEnabled, mockStream } from './MockProvider.js';
+import { mockEnabled, mockRequest } from './MockProvider.js';
 import { SSEClient, type SSEClientError } from 'fetch-sse-client';
 import { OpenAIAccumulator } from './OpenAIAccumulator.js';
 import type { OpenAIStreamChunk } from './openai-types.js';
@@ -44,12 +45,11 @@ export class OpenAICompatibleProvider extends LLMProvider {
     super(apiKey, baseUrl);
   }
 
-  async *chat(params: ChatCompletionParams): AsyncGenerator<LLMEvent> {
+  chat(params: ChatCompletionParams): LLMRequest {
     // mock 开关：开发态剧本驱动（详见 openspec/changes/004-mock-provider/design.md），
     // 切换点收在 LLM 层内部，Agent 与调用方零感知
     if (mockEnabled()) {
-      yield* mockStream(params);
-      return;
+      return mockRequest(params);
     }
 
     // ---- 请求组装（URL / headers / body 映射保持现状） ----
@@ -125,42 +125,41 @@ export class OpenAICompatibleProvider extends LLMProvider {
     client.on('done', () => push({ terminal: 'done' }));
     client.on('error', (err) => push({ terminal: 'error', error: err }));
 
-    // ---- 外部取消：signal 触发即 client.abort()，立即中断在途请求 ----
-    const onExternalAbort = () => client.abort();
-    params.signal?.addEventListener('abort', onExternalAbort, { once: true });
-
     client.start();
-    // 竞态兜底：信号先于注册触发时 listener 不会再 fire
-    if (params.signal?.aborted) client.abort();
 
-    try {
-      while (true) {
-        while (queue.length === 0) {
-          await new Promise<void>((resolve) => { notify = resolve; });
-        }
-        const item = queue.shift()!;
-
-        if (item.terminal === 'error') {
-          yield { type: LLMEventType.Error, data: { message: mapError(item.error!) } };
-          return;
-        }
-        if (item.terminal === 'done') {
-          // 流异常结束（无 [DONE]）但有累积内容 → MessageComplete 兜底
-          if (accumulator.hasContent()) {
-            yield {
-              type: LLMEventType.MessageComplete,
-              data: { message: accumulator.buildMessage() },
-            };
+    // ---- 事件流：事件驱动 API → AsyncGenerator 消费模型 ----
+    const events = (async function* (): AsyncGenerator<LLMEvent> {
+      try {
+        while (true) {
+          while (queue.length === 0) {
+            await new Promise<void>((resolve) => { notify = resolve; });
           }
-          return;
+          const item = queue.shift()!;
+
+          if (item.terminal === 'error') {
+            yield { type: LLMEventType.Error, data: { message: mapError(item.error!) } };
+            return;
+          }
+          if (item.terminal === 'done') {
+            // 流异常结束（无 [DONE]）但有累积内容 → MessageComplete 兜底
+            if (accumulator.hasContent()) {
+              yield {
+                type: LLMEventType.MessageComplete,
+                data: { message: accumulator.buildMessage() },
+              };
+            }
+            return;
+          }
+          yield item.event!;
         }
-        yield item.event!;
+      } finally {
+        // 消费方提前终止（break / return）时释放连接；
+        // 流已终结（closed 态）时为 no-op，天然安全
+        client.abort();
       }
-    } finally {
-      // 生成器提前终止（break / return / Agent abort）时释放连接；
-      // 流已终结（closed 态）时为 no-op，天然安全
-      params.signal?.removeEventListener('abort', onExternalAbort);
-      client.abort();
-    }
+    })();
+
+    // abort 直接代理 SSEClient.abort()：中断连接 → done 哨兵唤醒生成器终结
+    return { events, abort: () => client.abort() };
   }
 }

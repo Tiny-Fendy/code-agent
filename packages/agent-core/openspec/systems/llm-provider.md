@@ -35,6 +35,7 @@ LLM 接入按职责拆为三层，网络与业务严格分离：
 | chunk.choices[0].delta 结构解读 | Provider.chat() | content / tool_calls 分支判断 |
 | tool_calls 增量累积 | OpenAIAccumulator | 按 index 归位，arguments 逐段拼接，流末统一 JSON.parse |
 | LLMEvent 产出 | Provider.chat() | text_delta / tool_call_delta / message_complete / error |
+| 请求取消 | LLMRequest.abort() | 句柄随 chat() 返回，直接代理 SSEClient.abort()；按请求粒度，无共享可变状态 |
 
 ## 4. 事件模型（LLMEvent）
 
@@ -45,7 +46,7 @@ LLM 接入按职责拆为三层，网络与业务严格分离：
 | message_complete | 一条 assistant 消息组装完成（content + 完整 toolCalls） |
 | error | 网络 / 超时 / HTTP / 解析失败（由 SSEClientError 映射） |
 
-chat() 以 AsyncGenerator\<LLMEvent\> 产出事件，最后一定以 message_complete 或 error 收尾。该签名保持不变——三层拆分只改内部实现，不改对 Agent 的接口。
+chat() 返回 `LLMRequest` 句柄：`events`（AsyncGenerator\<LLMEvent\>）最后一定以 message_complete 或 error 收尾；`abort()` 立即中断在途请求。发送与取消同属请求生命周期，随句柄一并返回。
 
 ## 5. 关键设计决策
 
@@ -53,7 +54,7 @@ chat() 以 AsyncGenerator\<LLMEvent\> 产出事件，最后一定以 message_com
 |------|------|
 | SSE 传输独立为 fetch-sse-client 包 | 网络协议层与业务协议层解耦；作为开源产出物独立演进；Provider 不再内联手写 reader/decoder/buffer 逻辑 |
 | tool_calls 累积独立为 OpenAIAccumulator 类 | arguments 增量拼接是有状态业务逻辑，从 chat() 的流循环中抽出后可独立单测；chat() 只留编排 |
-| chat() 保持 AsyncGenerator\<LLMEvent\> 签名 | Agent 引擎的消费方式不变；SSEClient 的事件驱动 API 在 Provider 内部适配为生成器 |
+| chat() 返回 LLMRequest 句柄（events + abort） | 取消是请求的基础能力：SSEClient 的事件驱动 API 在 Provider 内部适配为生成器，abort() 直接代理 SSEClient.abort()，不经 signal 桥接；按请求粒度持有，并发安全 |
 | Provider 构造时固定为 OpenAICompatible，不抽象注入 | 当前只有一种协议，等出现第二种再抽象（Agent 引擎文档已记录此决策） |
 | 协议层原始类型（OpenAIStreamChunk 等）独立存放 openai-types.ts | 避免实现文件内联匿名嵌套类型，保持接口结构清晰可复用 |
 | 错误以 LLMEvent(error) 事件产出而非抛出 | 与 Agent 引擎的事件流消费模型对齐；SSEClientError 的 type/status 映射进 error message |
@@ -65,7 +66,7 @@ chat() 以 AsyncGenerator\<LLMEvent\> 产出事件，最后一定以 message_com
 
 关键设计（详见 `openspec/changes/004-mock-provider/design.md`）：
 
-- **外部零感知**：`chat()` 入口 `if (mockEnabled()) { yield* mockStream(params); return; }` 薄委托，Agent / contracts / 调用方零改动；未来三层重构后委托仍位于编排层入口，不冲突
+- **外部零感知**：`chat()` 入口 `if (mockEnabled()) { return mockRequest(params); }` 薄委托，Agent / contracts / 调用方零改动；未来三层重构后委托仍位于编排层入口，不冲突
 - **事件同构硬约束**：Mock 合成的事件 data 形状与真实 Provider 输出逐字段对齐（TextDelta 分块、ToolCallDelta 累积形状、MessageComplete 完整消息），保证 Agent 全链路被真实驱动
 - **双入口与优先级**：显式 `setMockProvider()`（动态剧本全能力，函数条目可检查 `params.messages` 做有状态剧本）> 环境变量 `CODE_AGENT_MOCK_SCRIPT`（JSON 静态剧本，首次调用惰性加载）> 关闭
 - **fail-loud**：env 配置失败进入错误态单例反复报错，绝不静默回退真实 LLM；剧本耗尽默认 Error 事件显式暴露（可选 loop 重复最后一条）
@@ -78,6 +79,7 @@ chat() 以 AsyncGenerator\<LLMEvent\> 产出事件，最后一定以 message_com
 - [x] MockProvider 与切换机制落地（§6）
 - [x] OpenAIAccumulator 类抽离
 - [x] Provider.chat() 改造为三层编排（删除内联 SSE 解析；mock 委托保留在编排层入口）
+- [x] chat() 返回 LLMRequest 句柄（events + abort），取消能力并入请求抽象（2026-10-24）
 
 ## 8. 已知限制与非目标
 
