@@ -44,8 +44,6 @@ export interface SSEReconnectOptions {
   maxDelay?: number;
   /** 抖动系数 0-1，±delay*jitter 随机偏移避免惊群（默认 0.3） */
   jitter?: number;
-  /** 页面隐藏时暂停流、可见后以新连接轮次恢复（默认 false；仅浏览器环境生效） */
-  reconnectOnVisible?: boolean;
 }
 
 /** SSEClient 配置项 */
@@ -54,7 +52,7 @@ export interface SSEClientOptions {
   url: string;
   /** HTTP 方法（默认 'GET'） */
   method?: string;
-  /** 请求头：对象或函数（start 时求值一次，支持动态 token） */
+  /** 请求头：对象或函数（每次连接尝试时求值，重连可动态刷新 token） */
   headers?: Record<string, string> | (() => Record<string, string>);
   /** 请求体：普通对象自动 JSON 序列化并补 Content-Type；BodyInit 原样透传 */
   body?: BodyInit | Record<string, unknown>;
@@ -81,16 +79,14 @@ export interface SSEDoneInfo {
   eventCount: number;
 }
 
-/** reconnecting 事件负载（重连中间态通知，非终局） */
+/** reconnecting 事件负载（重连中间态通知，非终局；仅可重试错误触发自动重试时发出） */
 export interface SSEReconnectingInfo {
-  /** error：可重试错误触发的自动重试；hidden：页面隐藏暂停（reconnectOnVisible） */
-  reason: 'error' | 'hidden';
-  /** reason === 'error'：即将进行的重试序号（从 1 起） */
-  attempt?: number;
-  /** reason === 'error'：本次重试等待毫秒（Retry-After 优先，否则指数退避+jitter，封顶 maxDelay） */
-  delay?: number;
-  /** reason === 'error'：触发重试的错误 */
-  error?: SSEClientError;
+  /** 即将进行的重试序号（从 1 起） */
+  attempt: number;
+  /** 本次重试等待毫秒（Retry-After 优先，否则指数退避+jitter，封顶 maxDelay） */
+  delay: number;
+  /** 触发重试的错误 */
+  error: SSEClientError;
 }
 
 /** SSEClient 事件负载映射 */

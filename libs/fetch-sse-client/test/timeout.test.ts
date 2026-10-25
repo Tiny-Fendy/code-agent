@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { createTimeoutController } from '@/timeout';
+import { TimeoutController } from '@/timeout';
 
 afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('createTimeoutController', () => {
+describe('TimeoutController', () => {
   it('connectTimeout 到期触发 abort', () => {
     vi.useFakeTimers();
-    const ctrl = createTimeoutController(1000, 0, 0);
+    const ctrl = new TimeoutController(1000, 0, 0);
     ctrl.startConnectTimer();
     vi.advanceTimersByTime(1000);
     expect(ctrl.controller.signal.aborted).toBe(true);
@@ -18,7 +18,7 @@ describe('createTimeoutController', () => {
 
   it('连接建立前取消 connect 计时则不触发', () => {
     vi.useFakeTimers();
-    const ctrl = createTimeoutController(1000, 0, 0);
+    const ctrl = new TimeoutController(1000, 0, 0);
     ctrl.startConnectTimer();
     ctrl.cancelConnectTimer();
     vi.advanceTimersByTime(5000);
@@ -29,7 +29,7 @@ describe('createTimeoutController', () => {
 
   it('readTimeout 在每次数据到达后重新计时', () => {
     vi.useFakeTimers();
-    const ctrl = createTimeoutController(0, 1000, 0);
+    const ctrl = new TimeoutController(0, 1000, 0);
     ctrl.refreshReadTimer();
     vi.advanceTimersByTime(800);
     ctrl.refreshReadTimer(); // 数据到达，重新计时
@@ -43,7 +43,7 @@ describe('createTimeoutController', () => {
 
   it('totalTimeout 到期触发 abort', () => {
     vi.useFakeTimers();
-    const ctrl = createTimeoutController(0, 0, 500);
+    const ctrl = new TimeoutController(0, 0, 500);
     vi.advanceTimersByTime(500);
     expect(ctrl.controller.signal.aborted).toBe(true);
     expect(ctrl.totalTimedOut).toBe(true);
@@ -52,7 +52,7 @@ describe('createTimeoutController', () => {
 
   it('dispose 后所有计时器不再触发', () => {
     vi.useFakeTimers();
-    const ctrl = createTimeoutController(100, 100, 100);
+    const ctrl = new TimeoutController(100, 100, 100);
     ctrl.startConnectTimer();
     ctrl.refreshReadTimer();
     ctrl.dispose();
@@ -63,14 +63,14 @@ describe('createTimeoutController', () => {
   it('外部 signal 已取消时立即联动 abort', () => {
     const external = new AbortController();
     external.abort();
-    const ctrl = createTimeoutController(0, 0, 0, external.signal);
+    const ctrl = new TimeoutController(0, 0, 0, external.signal);
     expect(ctrl.controller.signal.aborted).toBe(true);
     ctrl.dispose();
   });
 
   it('外部 signal 之后取消会联动 abort', () => {
     const external = new AbortController();
-    const ctrl = createTimeoutController(0, 0, 0, external.signal);
+    const ctrl = new TimeoutController(0, 0, 0, external.signal);
     expect(ctrl.controller.signal.aborted).toBe(false);
     external.abort();
     expect(ctrl.controller.signal.aborted).toBe(true);
@@ -79,7 +79,7 @@ describe('createTimeoutController', () => {
 
   it('0 表示不启用对应超时', () => {
     vi.useFakeTimers();
-    const ctrl = createTimeoutController(0, 0, 0);
+    const ctrl = new TimeoutController(0, 0, 0);
     ctrl.startConnectTimer();
     ctrl.refreshReadTimer();
     vi.advanceTimersByTime(60000);

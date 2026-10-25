@@ -14,9 +14,6 @@
 export { SSEClient } from './client.js';
 export { SSEClientError, type SSEClientErrorType } from './errors.js';
 
-// 底层解析器（可独立使用）
-export { createSSEParser, type SSEParser } from './parser.js';
-
 // 类型导出
 export type {
   SSEEvent,

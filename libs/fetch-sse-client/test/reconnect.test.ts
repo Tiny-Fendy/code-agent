@@ -1,88 +1,68 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import {
-  calculateReconnectDelay,
-  parseRetryAfterHeaders,
-  resolveReconnectOptions,
-} from '@/reconnect';
-import type { ResolvedReconnectOptions } from '@/reconnect';
+import { ReconnectPolicy, parseRetryAfterHeaders } from '@/reconnect';
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('resolveReconnectOptions', () => {
+describe('ReconnectPolicy.resolve', () => {
   it('未配置 → null（即不重试）', () => {
-    expect(resolveReconnectOptions(undefined)).toBeNull();
+    expect(ReconnectPolicy.resolve(undefined)).toBeNull();
   });
 
-  it('空对象 → 全部默认值（maxRetries 3 / baseDelay 1000 / maxDelay 30000 / jitter 0.3 / reconnectOnVisible false）', () => {
-    expect(resolveReconnectOptions({})).toEqual({
-      maxRetries: 3,
-      baseDelay: 1000,
-      maxDelay: 30_000,
-      jitter: 0.3,
-      reconnectOnVisible: false,
-    });
+  it('空对象 → 默认值生效（maxRetries 3）', () => {
+    const policy = ReconnectPolicy.resolve({});
+    expect(policy).not.toBeNull();
+    expect(policy!.maxRetries).toBe(3);
   });
 
   it('部分覆盖 → 覆盖项生效，其余保持默认', () => {
-    expect(resolveReconnectOptions({ maxRetries: 5 })).toEqual({
-      maxRetries: 5,
-      baseDelay: 1000,
-      maxDelay: 30_000,
-      jitter: 0.3,
-      reconnectOnVisible: false,
-    });
-    expect(
-      resolveReconnectOptions({ baseDelay: 100, reconnectOnVisible: true }),
-    ).toEqual({
-      maxRetries: 3,
-      baseDelay: 100,
-      maxDelay: 30_000,
-      jitter: 0.3,
-      reconnectOnVisible: true,
-    });
+    expect(ReconnectPolicy.resolve({ maxRetries: 5 })!.maxRetries).toBe(5);
+    // baseDelay 覆盖通过 nextDelay 行为验证（jitter=0 时精确）
+    expect(ReconnectPolicy.resolve({ baseDelay: 100, jitter: 0 })!.nextDelay(1)).toBe(100);
   });
 });
 
-describe('calculateReconnectDelay（指数退避 + 抖动）', () => {
-  const base: ResolvedReconnectOptions = {
-    maxRetries: 3,
-    baseDelay: 1000,
-    maxDelay: 30_000,
-    jitter: 0,
-    reconnectOnVisible: false,
-  };
-
+describe('ReconnectPolicy.nextDelay（指数退避 + 抖动 + Retry-After 优先）', () => {
   it('attempt 从 1 起：1/2/3 次 → base/2x/4x', () => {
-    expect(calculateReconnectDelay(1, base)).toBe(1000);
-    expect(calculateReconnectDelay(2, base)).toBe(2000);
-    expect(calculateReconnectDelay(3, base)).toBe(4000);
+    const policy = ReconnectPolicy.resolve({ baseDelay: 1000, maxDelay: 30_000, jitter: 0 })!;
+    expect(policy.nextDelay(1)).toBe(1000);
+    expect(policy.nextDelay(2)).toBe(2000);
+    expect(policy.nextDelay(3)).toBe(4000);
   });
 
   it('封顶 maxDelay', () => {
-    expect(calculateReconnectDelay(10, base)).toBe(30_000);
-    expect(calculateReconnectDelay(20, { ...base, baseDelay: 5000 })).toBe(30_000);
+    const policy = ReconnectPolicy.resolve({ baseDelay: 1000, maxDelay: 30_000, jitter: 0 })!;
+    expect(policy.nextDelay(10)).toBe(30_000);
+    const policy2 = ReconnectPolicy.resolve({ baseDelay: 5000, maxDelay: 30_000, jitter: 0 })!;
+    expect(policy2.nextDelay(20)).toBe(30_000);
   });
 
   it('jitter=0 时不读取随机源，结果精确', () => {
     const spy = vi.spyOn(Math, 'random');
-    expect(calculateReconnectDelay(1, base)).toBe(1000);
+    const policy = ReconnectPolicy.resolve({ baseDelay: 1000, maxDelay: 30_000, jitter: 0 })!;
+    expect(policy.nextDelay(1)).toBe(1000);
     expect(spy).not.toHaveBeenCalled();
   });
 
   it('jitter 偏移范围：random=0 → 下界 delay*(1-jitter)，random=1 → 上界 delay*(1+jitter)', () => {
-    const opts: ResolvedReconnectOptions = { ...base, jitter: 0.3 };
+    const policy = ReconnectPolicy.resolve({ baseDelay: 1000, maxDelay: 30_000, jitter: 0.3 })!;
     vi.spyOn(Math, 'random').mockReturnValue(0);
-    expect(calculateReconnectDelay(1, opts)).toBe(700);
+    expect(policy.nextDelay(1)).toBe(700);
     vi.spyOn(Math, 'random').mockReturnValue(1);
-    expect(calculateReconnectDelay(1, opts)).toBe(1300);
+    expect(policy.nextDelay(1)).toBe(1300);
   });
 
   it('jitter 后仍封顶 maxDelay', () => {
-    const opts: ResolvedReconnectOptions = { ...base, baseDelay: 25_000, jitter: 0.5 };
+    const policy = ReconnectPolicy.resolve({ baseDelay: 25_000, maxDelay: 30_000, jitter: 0.5 })!;
     vi.spyOn(Math, 'random').mockReturnValue(1);
-    expect(calculateReconnectDelay(2, opts)).toBe(30_000);
+    expect(policy.nextDelay(2)).toBe(30_000);
+  });
+
+  it('Retry-After 优先于指数退避，且封顶 maxDelay', () => {
+    const policy = ReconnectPolicy.resolve({ baseDelay: 1000, maxDelay: 30_000, jitter: 0 })!;
+    expect(policy.nextDelay(1, 5000)).toBe(5000);
+    expect(policy.nextDelay(1, 60_000)).toBe(30_000); // 封顶
   });
 });
 
@@ -114,6 +94,10 @@ describe('parseRetryAfterHeaders（Retry-After 优先解析）', () => {
 
   it('负数 → null（不信任负延迟）', () => {
     expect(parseRetryAfterHeaders(new Headers({ 'retry-after-ms': '-5' }))).toBeNull();
+  });
+
+  it('Retry-After（秒）负数 → null（不信任负延迟）', () => {
+    expect(parseRetryAfterHeaders(new Headers({ 'retry-after': '-1' }))).toBeNull();
   });
 
   it('0 → 0（允许立即重试）', () => {

@@ -1,9 +1,9 @@
 /**
  * 自动重连策略
  *
- * - 配置解析：不配置即不重试（返回 null），配置项缺省回退默认值
+ * - 配置解析：不配置即不重试（resolve 返回 null），配置项缺省回退默认值
  * - 延迟计算：指数退避 + 抖动，封顶 maxDelay（attempt 从 1 起，首次重试即 baseDelay）
- * - Retry-After 解析：retry-after-ms（毫秒）优先，Retry-After（秒）次之，均无或非法返回 null
+ * - Retry-After：retry-after-ms（毫秒）优先，Retry-After（秒）次之，均无或非法返回 null
  */
 
 import type { SSEReconnectOptions } from './types.js';
@@ -14,7 +14,6 @@ export interface ResolvedReconnectOptions {
   baseDelay: number;
   maxDelay: number;
   jitter: number;
-  reconnectOnVisible: boolean;
 }
 
 export const RECONNECT_DEFAULTS: ResolvedReconnectOptions = {
@@ -22,32 +21,42 @@ export const RECONNECT_DEFAULTS: ResolvedReconnectOptions = {
   baseDelay: 1000,
   maxDelay: 30_000,
   jitter: 0.3,
-  reconnectOnVisible: false,
 };
 
-/** 解析重连配置：未配置返回 null（即不重试），否则填充默认值 */
-export function resolveReconnectOptions(
-  options?: SSEReconnectOptions,
-): ResolvedReconnectOptions | null {
-  if (!options) return null;
-  return { ...RECONNECT_DEFAULTS, ...options };
-}
-
 /**
- * 计算第 attempt 次重试的等待时间（毫秒）
- *
- * 指数退避：baseDelay * 2^(attempt-1)，±delay*jitter 随机抖动避免惊群，封顶 maxDelay。
- * attempt 从 1 起：首次重试延迟即 baseDelay±jitter。
+ * 重连策略：持有已解析的配置，提供重试延迟计算。
+ * 不配置即不重试（resolve 返回 null）。
  */
-export function calculateReconnectDelay(
-  attempt: number,
-  options: ResolvedReconnectOptions,
-): number {
-  let delay = options.baseDelay * Math.pow(2, attempt - 1);
-  if (options.jitter > 0) {
-    delay += (Math.random() * 2 - 1) * delay * options.jitter;
+export class ReconnectPolicy {
+  private constructor(private readonly options: ResolvedReconnectOptions) {}
+
+  /** 解析重连配置：未配置返回 null（即不重试），否则返回策略实例 */
+  static resolve(options?: SSEReconnectOptions): ReconnectPolicy | null {
+    if (!options) return null;
+    return new ReconnectPolicy({ ...RECONNECT_DEFAULTS, ...options });
   }
-  return Math.min(Math.max(delay, 0), options.maxDelay);
+
+  /** 最大重试次数 */
+  get maxRetries(): number {
+    return this.options.maxRetries;
+  }
+
+  /**
+   * 计算第 attempt 次重试的等待时间（毫秒）
+   *
+   * Retry-After 优先（封顶 maxDelay），否则指数退避 + 抖动，封顶 maxDelay。
+   * attempt 从 1 起：首次重试延迟即 baseDelay±jitter。
+   */
+  nextDelay(attempt: number, retryAfterMs?: number): number {
+    if (retryAfterMs !== undefined) {
+      return Math.min(retryAfterMs, this.options.maxDelay);
+    }
+    let delay = this.options.baseDelay * Math.pow(2, attempt - 1);
+    if (this.options.jitter > 0) {
+      delay += (Math.random() * 2 - 1) * delay * this.options.jitter;
+    }
+    return Math.min(Math.max(delay, 0), this.options.maxDelay);
+  }
 }
 
 /**

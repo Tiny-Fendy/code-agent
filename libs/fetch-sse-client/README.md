@@ -11,7 +11,6 @@
 - **三层超时**：连接 / 读取 / 总超时独立控制
 - **取消封装**：`abort()` 方法，内部 AbortController 对消费端零暴露；取消归 `done { reason: 'aborted' }`，非错误
 - **自动重连（opt-in）**：`reconnect` 配置组，仅首字节前自动重试（fetch 拒绝 / connect 超时 / 429 / 5xx），Retry-After 头优先，指数退避 + 抖动兜底；流中途失败终结并标记 `retryable` 供消费方整体重发
-- **可见性重连（opt-in）**：`reconnectOnVisible` 页面隐藏暂停流、可见恢复，新连接轮次重试预算独立，按标准回传 `Last-Event-ID`（仅浏览器环境生效）
 - **错误分类**：`SSEClientError` 四类 —— network / timeout / http / parse，附 `retryable` 可重试标记
 - **明确终局语义**：`done` 与 `error` 互斥且只发一次
 - **环境兼容**：Node.js 18+ / 现代浏览器 / Electron，零运行时依赖
@@ -46,8 +45,8 @@ client.on('data', (obj) => {
   console.log(obj);
 });
 client.on('reconnecting', (info) => {
-  // 重连中间态（非终局）：reason 'error'（带 attempt/delay/error）| 'hidden'（页面隐藏暂停）
-  console.log(`reconnecting: ${info.reason}`, info.attempt, info.delay);
+  // 重连中间态（非终局）：{ attempt, delay, error }
+  console.log(`reconnecting attempt ${info.attempt} in ${info.delay}ms`, info.error);
 });
 client.on('done', ({ reason, eventCount }) => {
   // reason: 'complete'（正常结束 / [DONE] 哨兵）| 'aborted'（主动取消）
@@ -77,7 +76,7 @@ client.abort();   // 随时取消（idle / closed 态为 no-op）
 |------|------|
 | 服务端关闭连接 | `done { reason: 'complete' }` |
 | 收到 `[DONE]` 哨兵 | `done { reason: 'complete' }`，库主动关流 |
-| 调用 `abort()`（含重试等待、可见性暂停期间） | `done { reason: 'aborted' }` |
+| 调用 `abort()`（含重试等待期间） | `done { reason: 'aborted' }` |
 | 首字节前可重试失败（fetch 拒绝 / connect 超时 / 429 / 5xx），未开启 reconnect 或重试预算耗尽 | `error`（retryable=true） |
 | 流中途失败（read 超时 / 流中断 / JSON 解析失败） | `error`（retryable=true 仅供消费方整体重发提示，不自动重试） |
 | total 超时 / 其余 4xx / onOpen 抛错 / 请求准备失败 | `error`（retryable=false） |
@@ -94,20 +93,17 @@ const client = new SSEClient({
     baseDelay: 1000,         // 指数退避基础延迟毫秒（默认 1000）
     maxDelay: 30_000,        // 延迟上限毫秒（默认 30000）
     jitter: 0.3,             // 抖动系数 0-1（默认 0.3）
-    reconnectOnVisible: false, // 页面隐藏暂停、可见恢复（默认 false）
   },
 });
 ```
 
 - **重试延迟**：429/5xx 优先读取 `retry-after-ms` / `Retry-After` 头，均无才用指数退避 + 抖动，统一封顶 `maxDelay`
-- **reconnecting 事件**：`{ reason: 'error', attempt, delay, error }`（重试通知）/ `{ reason: 'hidden' }`（页面隐藏暂停）
-- **可见性重连**：hidden 时中止当前请求（不发 done/error），visible 立即以新连接恢复并回传 `Last-Event-ID`，新轮次重试预算独立；仅浏览器环境生效
+- **reconnecting 事件**：`{ attempt, delay, error }`（即将进行的重试序号 / 等待毫秒 / 触发错误），重试预算耗尽后发 `error` 终局
 
 ## API 概览
 
 - `SSEClient` — 核心类，构造与 `start()` 分离，实例一次性；开启 reconnect 后重连是 running 态内部循环
 - `SSEClientError` — 结构化错误，`type` / `status?` / `retryable` / `cause?`
-- `createSSEParser()` — 底层 SSE 解析器（W3C EventSource 规范，可单独使用）
 
 ## License
 
