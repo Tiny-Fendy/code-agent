@@ -1,11 +1,10 @@
-import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
+import { defineConfig } from 'electron-vite';
 import { resolve } from 'path';
 
 // electron-vite 配置
 // preload 入口与本包 src/preload/index.ts，实现收口在 @code-agent/rpc/preload
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
     build: {
       outDir: resolve(__dirname, 'dist/main'),
       sourcemap: true,
@@ -20,7 +19,6 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
     build: {
       outDir: resolve(__dirname, 'dist/preload'),
       sourcemap: true,
