@@ -312,27 +312,105 @@ body {
 }
 
 /* ---- 输入区 ---- */
+/*
+ * 结构：外层 .chat-input-box 负责边框与聚焦态；内部纵向排列为
+ *   TextArea（无边框） + 底部工具栏（左侧保留区 + 右侧操作按钮）。
+ * 发送/停止为圆形 icon 按钮，固定在右下角。
+ */
 
 .chat-input {
   flex-shrink: 0;
   padding: 12px 24px 16px;
   border-top: 1px solid #f0f0f0;
+}
+
+.chat-input-box {
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  background: #fff;
   display: flex;
-  gap: 8px;
-  align-items: flex-end;
+  flex-direction: column;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-/* TextArea 带计数时会多包一层 affix wrapper，两者都要吃满剩余宽度 */
-.chat-input .ant-input,
-.chat-input .ant-input-affix-wrapper {
-  flex: 1;
+.chat-input-box:focus-within {
+  border-color: #12B886;
+  box-shadow: 0 0 0 2px rgba(18, 184, 134, 0.12);
 }
 
-.chat-input .ant-input {
-  font-size: 14px;
+/* 外层 box 已提供边框，textarea 自身不再画边框/阴影 */
+.chat-input-box .ant-input,
+.chat-input-box .ant-input-affix-wrapper {
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent;
+}
+
+.chat-input-box textarea.ant-input {
+  resize: none;
+  padding: 12px 14px 8px;
   line-height: 1.6;
 }
 
+.chat-input-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px 10px;
+  min-height: 36px;
+}
+
+.chat-input-toolbar-left,
+.chat-input-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-input-count {
+  font-size: 12px;
+  color: #999;
+}
+
+.chat-input-count-exceed {
+  color: #ff4d4f;
+}
+
+/* 圆形 icon 按钮：发送灰底白图标，hover 变主色；停止为红色 */
 .chat-input-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
   flex-shrink: 0;
+  transition: background 0.2s, color 0.2s;
+}
+
+.chat-input-btn-send {
+  background: #e0e0e0;
+  color: #fff;
+}
+
+.chat-input-btn-send:hover:not(:disabled) {
+  background: #12B886;
+}
+
+.chat-input-btn-send:disabled {
+  background: #f0f0f0;
+  color: #d0d0d0;
+  cursor: not-allowed;
+}
+
+.chat-input-btn-stop {
+  background: #ff4d4f;
+  color: #fff;
+}
+
+.chat-input-btn-stop:hover {
+  background: #ff7875;
 }

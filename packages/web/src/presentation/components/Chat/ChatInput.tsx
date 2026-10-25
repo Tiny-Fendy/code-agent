@@ -1,12 +1,14 @@
 /**
  * 对话输入区
  *
+ * 结构：外层 box 负责边框与聚焦态，内部纵向排列为
+ *   TextArea（无边框） + 底部工具栏（左侧保留区 + 右侧操作按钮）。
+ * 发送/停止均为圆形 icon 按钮，置于右下角。
  * 流式中时发送按钮变为停止按钮；支持 Enter 发送、Shift+Enter 换行。
- * 输入禁用与发送/停止状态由 useChatStream 提供。
  */
 
 import { useState } from 'react';
-import { Button, Input } from 'antd';
+import { Input } from 'antd';
 import { SendOutlined, StopOutlined } from '@ant-design/icons';
 import { useChatStream } from '@/presentation/hooks/useChatStream';
 
@@ -28,8 +30,11 @@ const COUNT_VISIBLE_THRESHOLD = 8_000;
 export default function ChatInput() {
   const [value, setValue] = useState('');
   const { send, stop, isStreaming } = useChatStream();
+  const charCount = value.length;
+  const showCount = charCount > COUNT_VISIBLE_THRESHOLD;
 
   const handleSend = () => {
+    if (isStreaming) return;
     const text = value.trim();
     if (!text) return;
     send(text);
@@ -45,39 +50,52 @@ export default function ChatInput() {
 
   return (
     <div className="chat-input">
-      <TextArea
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder={isStreaming ? '正在生成回复…' : '输入消息，Enter 发送，Shift+Enter 换行'}
-        disabled={isStreaming}
-        autoSize={{ minRows: 3, maxRows: 10 }}
-        // maxLength 走原生属性（粘贴/输入都会被浏览器截断）；
-        // count 仅负责展示计数，其 max 不参与截断逻辑
-        maxLength={MAX_INPUT_CHARS}
-        count={{
-          max: MAX_INPUT_CHARS,
-          // show 函数是「内容格式化器」而非可见性开关：返回 null 时计数为空，
-          // 只有接近上限才输出 "已用 / 上限"，避免常态下多一行无信息量的数字
-          show: ({ count, maxLength }) =>
-            count > COUNT_VISIBLE_THRESHOLD ? `${count} / ${maxLength}` : null,
-        }}
-      />
-      {isStreaming ? (
-        <Button danger icon={<StopOutlined />} onClick={stop} className="chat-input-btn">
-          停止
-        </Button>
-      ) : (
-        <Button
-          type="primary"
-          icon={<SendOutlined />}
-          onClick={handleSend}
-          disabled={!value.trim()}
-          className="chat-input-btn"
-        >
-          发送
-        </Button>
-      )}
+      <div className="chat-input-box">
+        <TextArea
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={isStreaming ? '正在生成回复…' : '输入消息，Enter 发送，Shift+Enter 换行'}
+          disabled={isStreaming}
+          autoSize={{ minRows: 3, maxRows: 10 }}
+          maxLength={MAX_INPUT_CHARS}
+          bordered={false}
+        />
+        <div className="chat-input-toolbar">
+          {/* 左侧保留区：后续可放附件、截图、字数等；当前仅在接近上限时展示计数 */}
+          <div className="chat-input-toolbar-left">
+            {showCount && (
+              <span
+                className={`chat-input-count ${charCount >= MAX_INPUT_CHARS ? 'chat-input-count-exceed' : ''}`}
+              >
+                {charCount} / {MAX_INPUT_CHARS}
+              </span>
+            )}
+          </div>
+          <div className="chat-input-toolbar-right">
+            {isStreaming ? (
+              <button
+                type="button"
+                className="chat-input-btn chat-input-btn-stop"
+                onClick={stop}
+                aria-label="停止"
+              >
+                <StopOutlined />
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="chat-input-btn chat-input-btn-send"
+                onClick={handleSend}
+                disabled={!value.trim()}
+                aria-label="发送"
+              >
+                <SendOutlined />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
