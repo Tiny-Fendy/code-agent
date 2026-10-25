@@ -2,6 +2,11 @@ packages:
   - packages/*
   - libs/*
 
-ignoredBuiltDependencies:
+onlyBuiltDependencies:
+  # electron 的 postinstall 负责下载 Electron 二进制，禁止执行会导致启动报
+  # "Electron failed to install correctly"（缺 path.txt / dist）
   - electron
+
+ignoredBuiltDependencies:
+  # esbuild 平台二进制经 optionalDependencies 分发，无需 postinstall
   - esbuild
