@@ -232,6 +232,41 @@ describe('降级策略', () => {
   });
 });
 
+describe('中断', () => {
+  it('signal 已中断：立即返回中断错误且不触达宿主回调', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const callback = vi.fn<UserInputCallback>();
+
+    const result = await tool.execute(
+      { question: '选哪个？' },
+      { ...ctxWith(callback), signal: controller.signal },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('用户交互已被中断');
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it('等待中断：不等回调返回，立即收口为中断错误', async () => {
+    const controller = new AbortController();
+    const callback = vi.fn<UserInputCallback>(() => new Promise(() => {}));
+
+    const pending = tool.execute(
+      { question: '选哪个？', options: [{ label: 'A' }, { label: 'B' }] },
+      { ...ctxWith(callback), signal: controller.signal },
+    );
+    // 已进入宿主回调等待
+    expect(callback).toHaveBeenCalledTimes(1);
+
+    controller.abort();
+    const result = await pending;
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('用户交互已被中断');
+  });
+});
+
 describe('日志埋点', () => {
   it('请求与回答记录 info，含选项数量与耗时', async () => {
     const logger = new FakeLogger();

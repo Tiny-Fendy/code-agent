@@ -13,7 +13,13 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Agent } from '../../src/agent/Agent';
 import { LLMProvider, type ChatCompletionParams, type LLMEvent, type LLMRequest } from '../../src/llm/LLMProvider';
-import type { AgentEvent, ChatMessage, SendResult, UserInputCallback } from '@code-agent/contracts';
+import type {
+  AgentEvent,
+  AgentOptions,
+  ChatMessage,
+  SendResult,
+  UserInputCallback,
+} from '@code-agent/contracts';
 
 /** 假 LLM：每次 chat 调用都按脚本重新生成事件，并记录请求参数与 abort 调用 */
 class FakeProvider extends LLMProvider {
@@ -94,6 +100,21 @@ function createAgentWithAsk(
   );
   (agent as unknown as { llm: LLMProvider }).llm = provider;
   return { agent, logger, provider };
+}
+
+/** 带 onConfirm 注入的 createAgent，返回 provider 以断言请求次数 */
+function createAgentWithConfirm(
+  script: () => AsyncGenerator<LLMEvent>,
+  onConfirm: AgentOptions['onConfirm'],
+): { agent: Agent; provider: FakeProvider } {
+  const provider = new FakeProvider(script);
+  const agent = new Agent(
+    { apiKey: 'fake', baseUrl: 'http://fake', model: 'fake', maxSteps: 10 },
+    process.cwd(),
+    { onConfirm },
+  );
+  (agent as unknown as { llm: LLMProvider }).llm = provider;
+  return { agent, provider };
 }
 
 /** 手动迭代收集事件与生成器返回值（for-await 会丢弃 return 值） */
@@ -252,6 +273,185 @@ describe('Agent.run 终局结果', () => {
     let r = await gen.next();
     while (!r.done) r = await gen.next();
     expect(r.value).toEqual({ status: 'aborted' });
+  });
+});
+
+describe('Agent.run 门控中断', () => {
+  /** 单条消息：声明一个需要确认的工具调用（run_command 为高危工具） */
+  const runCommandMessage = async function* (): AsyncGenerator<LLMEvent> {
+    yield {
+      type: 'message_complete',
+      data: {
+        message: {
+          role: 'assistant',
+          content: '',
+          toolCalls: [
+            { id: 'tc-cmd', name: 'run_command', arguments: { command: 'echo hi' } },
+          ],
+        },
+      },
+    };
+  };
+
+  /** 永不 resolve 的确认回调，留出手动放行/中断的窗口 */
+  function pendingConfirm() {
+    let resolve!: (value: boolean) => void;
+    const onConfirm = vi.fn<NonNullable<AgentOptions['onConfirm']>>(
+      () =>
+        new Promise<boolean>((r) => {
+          resolve = r;
+        }),
+    );
+    return { onConfirm, resolve: (value: boolean) => resolve(value) };
+  }
+
+  it('确认等待中断：abort() 后立即收口，不等宿主回调返回', async () => {
+    const { onConfirm } = pendingConfirm();
+    const { agent, provider } = createAgentWithConfirm(runCommandMessage, onConfirm);
+
+    const gen = agent.run('执行命令');
+    await gen.next(); // message_complete
+    const confirmStep = await gen.next();
+    expect(confirmStep.value).toMatchObject({ type: 'tool_call_confirm' });
+
+    agent.abort();
+
+    const events: AgentEvent[] = [];
+    let r = await gen.next();
+    while (!r.done) {
+      events.push(r.value);
+      r = await gen.next();
+    }
+
+    expect(r.value).toEqual({ status: 'aborted' });
+    // 回调只被请求一次，且未被执行
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(provider.calls).toHaveLength(1);
+    // 中断结果补齐，但没有 tool_call_start（工具未执行）
+    expect(events.map((e) => e.type)).toEqual(['tool_call_result']);
+    const resultEvent = events.find((e) => e.type === 'tool_call_result');
+    expect(resultEvent?.data.result).toEqual({
+      success: false,
+      content: '',
+      error: '任务已中断，工具未执行',
+    });
+    // 历史成对：tool 消息与 toolCall.id 对应
+    const toolMessages = agent.getHistory().filter((m) => m.role === 'tool');
+    expect(toolMessages).toHaveLength(1);
+    expect(toolMessages[0].toolCallId).toBe('tc-cmd');
+  });
+
+  it('中断后迟到的确认决议被丢弃，不触发工具执行', async () => {
+    const { onConfirm, resolve } = pendingConfirm();
+    const { agent, provider } = createAgentWithConfirm(runCommandMessage, onConfirm);
+
+    const gen = agent.run('执行命令');
+    await gen.next(); // message_complete
+    await gen.next(); // tool_call_confirm
+
+    agent.abort();
+    let r = await gen.next();
+    while (!r.done) r = await gen.next();
+    expect(r.value).toEqual({ status: 'aborted' });
+
+    // 迟到的放行决议：引擎已收尾，不得恢复执行或追加消息
+    resolve(true);
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(provider.calls).toHaveLength(1);
+    const history = agent.getHistory();
+    expect(history.filter((m) => m.role === 'tool')).toHaveLength(1);
+    expect(history.some((m) => m.role === 'tool' && m.content === 'Error: 任务已中断，工具未执行')).toBe(
+      true,
+    );
+  });
+
+  it('多工具调用：中断后为未回灌的调用补齐中断结果', async () => {
+    const { onConfirm } = pendingConfirm();
+    const script = async function* (): AsyncGenerator<LLMEvent> {
+      yield {
+        type: 'message_complete',
+        data: {
+          message: {
+            role: 'assistant',
+            content: '',
+            toolCalls: [
+              { id: 'tc-1', name: 'read_file', arguments: { file_path: 'no-such-file.txt' } },
+              { id: 'tc-2', name: 'run_command', arguments: { command: 'echo hi' } },
+              { id: 'tc-3', name: 'read_file', arguments: { file_path: 'no-such-file.txt' } },
+            ],
+          },
+        },
+      };
+    };
+    const { agent } = createAgentWithConfirm(script, onConfirm);
+
+    const gen = agent.run('批量执行');
+    await gen.next(); // message_complete
+    await gen.next(); // tc-1 start
+    await gen.next(); // tc-1 result（读文件失败也是回灌结果）
+    const confirmStep = await gen.next(); // tc-2 confirm
+    expect(confirmStep.value).toMatchObject({ type: 'tool_call_confirm' });
+
+    agent.abort();
+    const events: AgentEvent[] = [];
+    let r = await gen.next();
+    while (!r.done) {
+      events.push(r.value);
+      r = await gen.next();
+    }
+    expect(r.value).toEqual({ status: 'aborted' });
+
+    // 三个 tool_call 全部有 tool 消息，顺序与声明一致
+    const toolMessages = agent.getHistory().filter((m) => m.role === 'tool');
+    expect(toolMessages.map((m) => m.toolCallId)).toEqual(['tc-1', 'tc-2', 'tc-3']);
+    expect(toolMessages[1].content).toBe('Error: 任务已中断，工具未执行');
+    expect(toolMessages[2].content).toBe('Error: 任务已中断，工具未执行');
+    // 补齐的两个调用也通过事件流告知 UI
+    expect(events.filter((e) => e.type === 'tool_call_result')).toHaveLength(2);
+    expect(events.some((e) => e.type === 'tool_call_start')).toBe(false);
+  });
+
+  it('LLM 流中断：不产生 assistant/tool 消息，也不补齐', async () => {
+    const agent = createAgent(async function* () {
+      yield { type: 'text_delta', data: { delta: 'x' } };
+      await new Promise((r) => setTimeout(r, 30));
+      yield { type: 'message_complete', data: { message: textMessage('不该到达') } };
+    });
+
+    const gen = agent.run('hi');
+    await gen.next(); // text_delta
+    agent.abort();
+
+    let r = await gen.next();
+    while (!r.done) r = await gen.next();
+    expect(r.value).toEqual({ status: 'aborted' });
+    // assistant 消息未落地，无需（也不应）补齐
+    expect(agent.getHistory().some((m) => m.role === 'assistant' || m.role === 'tool')).toBe(false);
+  });
+
+  it('中断后同一 Agent 可再次 run（取消源不跨 run 残留）', async () => {
+    let callCount = 0;
+    const agent = createAgent(async function* () {
+      callCount++;
+      if (callCount === 1) {
+        yield { type: 'text_delta', data: { delta: 'x' } };
+        await new Promise((r) => setTimeout(r, 30));
+        yield { type: 'message_complete', data: { message: textMessage('不该到达') } };
+      } else {
+        yield { type: 'message_complete', data: { message: textMessage('第二轮完成') } };
+      }
+    });
+
+    const firstRun = agent.run('hi');
+    await firstRun.next();
+    agent.abort();
+    let r = await firstRun.next();
+    while (!r.done) r = await firstRun.next();
+    expect(r.value).toEqual({ status: 'aborted' });
+
+    const { result } = await collect(agent.run('继续'));
+    expect(result).toEqual({ status: 'completed', steps: 1 });
   });
 });
 
@@ -445,5 +645,36 @@ describe('Agent.run ask_user 交互', () => {
     const secondMessages = provider.calls[1].messages;
     const lastMessage = secondMessages[secondMessages.length - 1];
     expect(lastMessage.content).toContain('用户交互失败: UI 已关闭');
+  });
+
+  it('等待中断：abort() 后工具立即返回中断错误，Agent 收尾 aborted', async () => {
+    // 永不返回的宿主回调：模拟用户一直未作答
+    const onAskUser = vi.fn<UserInputCallback>(() => new Promise(() => {}));
+    const { agent, provider } = createAgentWithAsk(askThenComplete(), onAskUser);
+
+    const gen = agent.run('开始');
+    await gen.next(); // message_complete
+    await gen.next(); // tool_call_start（生成器停在 yield）
+
+    // 恢复执行后工具挂在宿主回调上，此时中断
+    const pending = gen.next();
+    agent.abort();
+
+    const resultEvents: AgentEvent[] = [];
+    let r = await pending;
+    while (!r.done) {
+      resultEvents.push(r.value);
+      r = await gen.next();
+    }
+
+    expect(r.value).toEqual({ status: 'aborted' });
+    expect(onAskUser).toHaveBeenCalledTimes(1);
+    expect(provider.calls).toHaveLength(1);
+    // 中断作为 tool 结果回灌，历史成对
+    const toolMessages = agent.getHistory().filter((m) => m.role === 'tool');
+    expect(toolMessages).toHaveLength(1);
+    expect(toolMessages[0].toolCallId).toBe('tc-ask');
+    expect(toolMessages[0].content).toContain('用户交互已被中断');
+    expect(resultEvents.some((e) => e.type === 'tool_call_result')).toBe(true);
   });
 });
