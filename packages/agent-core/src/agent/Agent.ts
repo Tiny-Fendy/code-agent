@@ -39,6 +39,7 @@ import type {
 import { LLMProvider, LLMEventType, type LLMRequest } from '../llm/LLMProvider.js';
 import { OpenAICompatibleProvider } from '../llm/OpenAICompatible.js';
 import { ToolManager } from '../tools/ToolManager.js';
+import { ABORTED, raceAbort } from '../tools/support/abort.js';
 import { ToolEventBuilder } from './ToolEventBuilder.js';
 import { ContextManager } from '../context/ContextManager.js';
 import { NullLogger } from '../logging/NullLogger.js';
@@ -48,6 +49,18 @@ const DENIED_RESULT: ToolResult = {
   success: false,
   content: '',
   error: '用户拒绝了本次工具调用',
+};
+
+/**
+ * 任务中断时未执行工具的结果
+ *
+ * 与 DENIED_RESULT（用户拒绝）区分：中断是任务终止，不会有下一轮思考，
+ * 文案不得让模型误以为可以调整策略重试。
+ */
+const ABORTED_RESULT: ToolResult = {
+  success: false,
+  content: '',
+  error: '任务已中断，工具未执行',
 };
 
 /** 默认系统提示词 */
@@ -106,6 +119,8 @@ export class Agent {
   private toolContext: ToolContext;
   private maxSteps: number;
   private aborted = false;
+  /** run 级取消源：门控等待 race 与工具中断提示共用一个信号，run 结束即清理 */
+  private abortController: AbortController | null = null;
   /** 在途 LLM 请求句柄（含压缩摘要请求）：abort() 时立即中断，不等流事件到达 */
   private currentRequest: LLMRequest | null = null;
   /** 高危工具确认回调；未注入时自动放行（无 UI 场景） */
@@ -150,22 +165,32 @@ export class Agent {
   async *run(userMessage: string): AsyncGenerator<AgentEvent, SendResult> {
     this.logger.info('任务开始', { messageLength: userMessage.length, maxSteps: this.maxSteps });
 
-    const result = yield* this.runLoop(userMessage);
-
-    // 终局日志：穷尽四态（completed / finished / llmFailed / maxSteps / aborted）
-    const ctx: Record<string, unknown> = { status: result.status };
-    if ('steps' in result && result.steps !== undefined) ctx.steps = result.steps;
-    if ('summary' in result) ctx.summaryLength = result.summary.length;
-    if ('message' in result && result.message) ctx.error = result.message;
-    this.logger.info('任务终局', ctx);
-
-    return result;
-  }
-
-  /** ReAct 主循环（run 的执行体，开始/终局日志由外壳统一记录） */
-  private async *runLoop(userMessage: string): AsyncGenerator<AgentEvent, SendResult> {
+    // run 级取消源：每个 run 独立，避免上一轮中断残留影响下一轮
+    const controller = new AbortController();
+    this.abortController = controller;
+    this.toolContext.signal = controller.signal;
     this.aborted = false;
 
+    try {
+      const result = yield* this.runLoop(userMessage);
+
+      // 终局日志：穷尽四态（completed / finished / llmFailed / maxSteps / aborted）
+      const ctx: Record<string, unknown> = { status: result.status };
+      if ('steps' in result && result.steps !== undefined) ctx.steps = result.steps;
+      if ('summary' in result) ctx.summaryLength = result.summary.length;
+      if ('message' in result && result.message) ctx.error = result.message;
+      this.logger.info('任务终局', ctx);
+
+      return result;
+    } finally {
+      // 生成器被提前 return / 中断时同样回收，避免取消源跨 run 残留
+      this.abortController = null;
+      this.toolContext.signal = undefined;
+    }
+  }
+
+  /** ReAct 主循环（run 的执行体，开始/终局日志与取消源生命周期由外壳统一管理） */
+  private async *runLoop(userMessage: string): AsyncGenerator<AgentEvent, SendResult> {
     // 1. 添加用户消息到上下文
     this.contextManager.addMessage({
       role: 'user',
@@ -213,14 +238,26 @@ export class Agent {
         return { status: 'completed', steps: step + 1 };
       }
 
-      // ---- 行动阶段：执行工具 ----
+      // assistant 消息已落地：此时中断必须补齐工具结果，否则 tool_call 缺配对
+      if (this.aborted) {
+        yield* this.backfillAbortedToolCalls(toolCalls);
+        return { status: 'aborted' };
+      }
+
+      // 记录已回灌结果的 toolCall.id：中断时据此判定缺口，与中断发生位置解耦
+      const answered = new Set<string>();
       for (const toolCall of toolCalls) {
         if (this.aborted) break;
 
-        const toolResult = yield* this.executeToolCall(toolCall, step + 1);
+        const toolResult = yield* this.executeToolCall(toolCall, step + 1, answered);
         if (toolResult) {
           return toolResult;
         }
+      }
+
+      if (this.aborted) {
+        yield* this.backfillAbortedToolCalls(toolCalls, answered);
+        return { status: 'aborted' };
       }
 
       // 继续下一轮思考（循环回到 LLM 调用）
@@ -239,6 +276,7 @@ export class Agent {
   private async *executeToolCall(
     toolCall: ToolCall,
     step: number,
+    answered: Set<string>,
   ): AsyncGenerator<AgentEvent, SendResult | null, unknown> {
     const eventBuilder = new ToolEventBuilder(toolCall);
 
@@ -251,7 +289,16 @@ export class Agent {
       const confirmStartAt = Date.now();
       let approved: boolean;
       try {
-        approved = await this.onConfirm(toolCall);
+        // 与 run 级取消信号 race：中止时立即收口，不依赖宿主把回调 settle 掉
+        const decision = await raceAbort(this.onConfirm(toolCall), this.toolContext.signal);
+        if (decision === ABORTED) {
+          this.logger.info('确认等待被中断', {
+            tool: toolCall.name,
+            durationMs: Date.now() - confirmStartAt,
+          });
+          return null;
+        }
+        approved = decision;
       } catch {
         this.logger.warn('确认回调异常，按拒绝处理', { tool: toolCall.name });
         approved = false;
@@ -272,6 +319,7 @@ export class Agent {
           toolCallId: toolCall.id,
           name: toolCall.name,
         });
+        answered.add(toolCall.id);
         return null;
       }
       this.logger.info('确认通过', {
@@ -306,6 +354,7 @@ export class Agent {
       toolCallId: toolCall.id,
       name: toolCall.name,
     });
+    answered.add(toolCall.id);
 
     // ---- finish 检测：LLM 主动结束任务，不再进入下一轮 ----
     if (toolCall.name === 'finish' && result.success) {
@@ -314,6 +363,31 @@ export class Agent {
     }
 
     return null;
+  }
+
+  /**
+   * 中断收尾：为未回灌结果的 tool_call 补齐中断消息
+   *
+   * OpenAI 协议要求 assistant 声明的每个 tool_call 都有对应 tool 消息，
+   * 中断若直接退出会留下缺口，导致同一会话的下一轮请求被拒；
+   * 补齐后历史合法，宿主无需重建 Agent。
+   */
+  private async *backfillAbortedToolCalls(
+    toolCalls: ToolCall[],
+    answered?: Set<string>,
+  ): AsyncGenerator<AgentEvent, void, unknown> {
+    for (const toolCall of toolCalls) {
+      if (answered?.has(toolCall.id)) {
+        continue;
+      }
+      yield new ToolEventBuilder(toolCall).result(ABORTED_RESULT);
+      this.contextManager.addMessage({
+        role: 'tool',
+        content: `Error: ${ABORTED_RESULT.error}`,
+        toolCallId: toolCall.id,
+        name: toolCall.name,
+      });
+    }
   }
 
   /**
@@ -474,6 +548,9 @@ export class Agent {
   /** 中断当前执行：置标志位并中断在途 LLM 请求（流挂起时不等下一个事件） */
   abort(): void {
     this.aborted = true;
+    // 唤醒所有门控等待（确认 / ask_user），不等宿主回调返回
+    this.abortController?.abort();
+    // 在途 LLM 请求立即断流
     this.currentRequest?.abort();
   }
 

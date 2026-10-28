@@ -1,5 +1,6 @@
 import Type from 'typebox';
 import { BaseTool } from '../base.js';
+import { ABORTED, raceAbort } from '../support/abort.js';
 import type {
   ToolResult,
   ToolContext,
@@ -83,6 +84,13 @@ export class AskUserTool extends BaseTool<typeof askUserParams> {
       return this.error('当前环境不支持用户交互（未注入 onAskUser 回调）');
     }
 
+    // ---- 取消预检：run 已中断时不再触达宿主 ----
+    const signal = context.signal;
+    if (signal?.aborted) {
+      logger?.info('ask_user 已被中断，跳过用户交互');
+      return this.error('用户交互已被中断');
+    }
+
     const request: UserInputRequest = { question, options, allowMultiple };
     logger?.info('ask_user 请求', {
       optionCount: options?.length ?? 0,
@@ -92,7 +100,13 @@ export class AskUserTool extends BaseTool<typeof askUserParams> {
     const startAt = Date.now();
     let response: Awaited<ReturnType<NonNullable<ToolContext['requestUserInput']>>>;
     try {
-      response = await requestUserInput(request);
+      // 与 run 级取消信号 race：中断时立即收口，不等待宿主回调返回
+      const answer = await raceAbort(requestUserInput(request), signal);
+      if (answer === ABORTED) {
+        logger?.info('ask_user 等待被中断', { durationMs: Date.now() - startAt });
+        return this.error('用户交互已被中断');
+      }
+      response = answer;
     } catch (err) {
       logger?.warn('ask_user 回调异常', {
         error: (err as Error).message,

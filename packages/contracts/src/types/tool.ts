@@ -26,4 +26,11 @@ export interface ToolContext {
   logger?: Logger;
   /** 请求用户输入；未注入时工具应返回「不支持交互」错误 */
   requestUserInput?: UserInputCallback;
+  /**
+   * 本次 Agent 运行的取消信号（由 Agent 每个 run 注入）
+   *
+   * 工具在可阻塞点（如等待用户输入的 ask_user）应监听它做协作式中断；
+   * 运行中的长任务（子进程、出网请求）暂不强制响应，属后续「长任务取消」议题。
+   */
+  signal?: AbortSignal;
 }

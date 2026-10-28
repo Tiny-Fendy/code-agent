@@ -5,7 +5,8 @@
     "rootDir": "./src",
     "composite": true,
     "module": "NodeNext",
-    "moduleResolution": "NodeNext"
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM"]
   },
   "include": ["src/**/*.ts"],
   "references": [{ "path": "../../libs/rpc" }]
