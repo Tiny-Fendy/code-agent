@@ -19,6 +19,7 @@
 - [上下文管理（ContextManager）](./context-management.md)
 - [工具系统（ToolManager、工具生命周期）](./tool-system.md)
 - [LLM 接入（Provider 抽象与三层拆分）](./llm-provider.md)
+- [日志系统（Logger 接口与实现）](./logging.md)
 
 ## 更新时机
 

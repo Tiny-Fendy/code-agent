@@ -5,7 +5,7 @@
 
 ## 1. 定位
 
-工具系统是 Agent 的"手脚"：把 LLM 的 Function Calling 决策转化为对真实环境（文件系统、Shell）的操作。由三部分组成——**接入标准**（工具长什么样）、**调度中心**（ToolManager）、**工具实现**（file/、shell/）。
+工具系统是 Agent 的"手脚"：把 LLM 的 Function Calling 决策转化为对真实环境（文件系统、Shell、网络）的操作。由三部分组成——**接入标准**（工具长什么样）、**调度中心**（ToolManager）、**工具实现**（file/、shell/、web-fetch/、ask-user/、finish/）。
 
 ## 2. 职责边界
 
@@ -17,7 +17,7 @@
 | Schema 导出 / 按名执行 / 确认查询 | ToolManager | 面向 Agent 的三个调度接口 |
 | 路径安全 | PathGuard | 校验路径不逃逸出项目根目录 |
 | 文件操作公共设施 | FsService | 文件读写等共享逻辑 |
-| 工具能力实现 | file/（5 个）、shell/（1 个）、web-fetch/（1 个） | 纯能力类，不关心谁注册它 |
+| 工具能力实现 | file/（5 个）、shell/（1 个）、web-fetch/（1 个）、ask-user/（1 个）、finish/（1 个） | 纯能力类，不关心谁注册它 |
 
 ## 3. 接入标准（领域知识）
 
@@ -63,8 +63,8 @@ Agent：把 ToolResult 以 role='tool' 消息回灌上下文
 | list_dir | 目录树浏览 | 否 |
 | read_file | 读文件（行号格式，支持分页） | 否 |
 | search_by_regex | 正则内容搜索 | 否 |
-| write_file | 写文件（覆盖） | 否 |
-| edit_file | 精确替换编辑 | 否 |
+| write_file | 写文件（覆盖/新建，会丢数据） | **是** |
+| edit_file | 精确替换编辑 | **是** |
 | run_command | Shell 命令执行 | **是** |
 | finish | 任务完成时显式结束循环 | 否 |
 | ask_user | 请求用户选择或输入（经宿主回调） | 否 |
@@ -88,6 +88,7 @@ Agent：把 ToolResult 以 role='tool' 消息回灌上下文
 | HTTP 工具只放行 http/https 且限长 | 挡住 `file:` / `data:` 等本地或异常协议，是网络工具唯一强制边界；校验在 I/O 之前完成 |
 | 响应做「字节 + 字符」双层截断 | 5 MiB 字节上限保护内存与带宽，10000 字符上限保护上下文窗口；两级职责不同 |
 | 收到 4xx/5xx 仍返回 success | 状态码是 LLM 需要推理的观察，与 run_command 把非零退出码当正常结果同一理由 |
+| 门控等待用 `ToolContext.signal` 协作式中断 | 工具自己知道什么资源需要清理；若在 Agent 层硬切 `execute`，会留下孤儿回调与僵尸子进程 |
 | web_fetch 只做 GET 且每次确认 | 与 Claude Code / opencode 的「只读抓取 + 权限优先」一致；写请求交给 run_command |
 
 ## 7. 已知限制与非目标
@@ -96,10 +97,10 @@ Agent：把 ToolResult 以 role='tool' 消息回灌上下文
 - run_command 暂无常驻/后台进程支持（dev server 类命令），后续迭代
 - 无工具权限分级、无 per-project 工具开关
 - 自定义工具注入入口已就绪，但尚无真实使用场景验证
-- ask_user 的超时与取消由宿主回调负责；回调不返回时工具调用会保持挂起（与确认流相同）
+- ask_user 等待期间监听 `ToolContext.signal`（run 级取消信号，由 Agent 注入），中断返回「用户交互已被中断」；超时仍由宿主回调负责
+- 运行中的工具不响应中断：`run_command` 子进程、`web_fetch` 请求只能等自身超时或自然结束（属后续「长任务取消」议题）
 - web_fetch 不支持自定义请求头，需要鉴权的地址抓不了；无域名黑白名单、不拦截内网地址；重定向中间跳链不可见
 - web_fetch 的图片等二进制内容只回显元信息（ToolResult 无附件通道），且不缓存响应
-- 工具层没有贯穿执行的取消通道，运行中的 web_fetch 只能等自身超时（上限 120s）
 
 ## 8. 变更记录
 
@@ -111,3 +112,4 @@ Agent：把 ToolResult 以 role='tool' 消息回灌上下文
 | 2026-10-21 | ask_user 工具落地：第 8 个内置工具，经 `ToolContext.requestUserInput` 向宿主请求用户选择/输入；支持单选、多选、自由文本；未接入能力时降级为错误观察 | `changes/007-ask-user-tool/` |
 | 2026-10-23 | web_fetch 工具落地：第 9 个内置工具，Agent 首次具备出网能力；仅 GET、参数 url/format/timeout_ms、format 三档（turndown 转 Markdown）、5 MiB + 10000 字符双层截断、每次调用确认；设计对标 Claude Code `WebFetch` 与 opencode `webfetch` | `changes/008-web-fetch-tool/` |
 | 2026-10-24 | 工具参数契约重构：引入 typebox，BaseTool 泛型化（schema 同源 + 校验收敛到 execute），9 个内置工具全量迁移，消除全部参数 as 断言；行为收紧点：run_command/web_fetch 的 timeout_ms 超上限从截断变报错、ask_user 空数组 options 从省略变报错 | `changes/009-tool-schema-typebox/` |
+| 2026-10-25 | 门控等待可中断：`ToolContext` 新增可选 `signal`（Agent 每个 run 注入）；ask_user 用该信号协作式中断等待，返回「用户交互已被中断」；运行中工具（run_command / web_fetch）暂不响应中断 | `changes/010-abortable-gates/` |
